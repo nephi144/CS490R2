@@ -29,8 +29,8 @@ export default function KaraokeLyrics({ notes = [], activeNoteIndex = -1, noteSc
       justifyContent: "center",
       gap:            "clamp(10px, 2.5vw, 28px)",
       flexWrap:       "wrap",
-      padding:        "18px 32px",
-      minHeight:      96,
+      padding:        "10px 24px",
+      minHeight:      72,
       userSelect:     "none",    // not interactive — prevent accidental text selection
     }}>
       {notes.map((n, i) => {

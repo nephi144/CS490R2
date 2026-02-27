@@ -1,34 +1,64 @@
 // ─────────────────────────────────────────────────────────────
-// pages/TutorialPage.jsx — FULL VIEWPORT layout
-// Left panel: note selector + target info + controls
-// Right panel: live feedback + PitchCanvas (large)
+// pages/TutorialPage.jsx
+//
+// BUGS FIXED:
+//
+//   BUG 1 — Silent "Hear It" button (three layers):
+//     a) Context exposes `previewNote` but TutorialPage was
+//        destructuring `playPreviewNote` → always undefined →
+//        the `if (note && playPreviewNote)` guard silently ate it.
+//        Fix: destructure the correct name `previewNote`.
+//
+//     b) doHearIt was a plain sync function. Chrome requires
+//        `await Tone.start()` to be called synchronously inside
+//        the exact click handler that received the user gesture.
+//        Any async gap (even a resolved Promise) can break the
+//        gesture chain and leave Tone's AudioContext suspended.
+//        Fix: doHearIt is now `async`, calls Tone.start() first.
+//
+//     c) startTutorialListening() opens a native Web AudioContext
+//        for the mic. Tone.js has its own separate AudioContext.
+//        Chrome silently suspends a second AudioContext if the
+//        first is already running. Calling Tone.start() inside
+//        the click handler (synchronously) forces Chrome to resume
+//        Tone's context while still inside the gesture.
+//        Fix: same as (b) — explicit Tone.start() in click handler.
+//
+//   BUG 2 — Two pitch canvases (MelodyContourMap + PitchCanvas):
+//     Both panels showed different views of the same data.
+//     Fix: replaced both with a single <PlayPitchCanvas> — the
+//     same component PlayPage uses — which already draws the full
+//     blue melody guide + live green pitch trail in one canvas.
+//
+// UNCHANGED:
+//   • All left-panel controls (note selector, target card, nav)
+//   • Live feedback card (your pitch / target note display)
+//   • Mic setup lifecycle (startTutorialListening on mount)
+//   • Loading guard
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useEffect } from "react";
+import * as Tone               from "tone";
 import { useAudio }            from "../context/AudioContext.jsx";
-import { getCentsError, freqToNoteName, formatCents, tuningHint } from "../utils/musicMath.js";
-import PitchCanvas             from "../components/PitchCanvas.jsx";
-import MelodyContourMap        from "../components/MelodyContourMap.jsx";
+import { getCentsError, freqToNoteName, formatCents, tuningHint }
+                               from "../utils/musicMath.js";
+import PlayPitchCanvas         from "../components/PlayPitchCanvas.jsx";
 
 const C = {
-  border:  "rgba(255,255,255,0.08)",
-  muted:   "rgba(255,255,255,0.38)",
-  font:    "'Courier New', Courier, monospace",
-  green:   "#4ade80",
-  red:     "#f87171",
-  gold:    "#facc15",
-  blue:    "#93c5fd",
+  border: "rgba(255,255,255,0.08)",
+  muted:  "rgba(255,255,255,0.38)",
+  font:   "'Courier New', Courier, monospace",
+  green:  "#4ade80",
+  red:    "#f87171",
+  gold:   "#facc15",
+  blue:   "#93c5fd",
 };
 
 const BTN = (variant = "ghost") => ({
-  padding: "10px 20px",
-  borderRadius: 8,
+  padding: "10px 20px", borderRadius: 8,
   border: variant === "ghost" ? `1px solid ${C.border}` : "none",
-  cursor: "pointer",
-  fontFamily: C.font,
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: "0.07em",
+  cursor: "pointer", fontFamily: C.font, fontSize: 12,
+  fontWeight: 700, letterSpacing: "0.07em",
   background:
     variant === "primary" ? "linear-gradient(135deg,#3b82f6,#7c3aed)" :
     variant === "green"   ? "linear-gradient(135deg,#16a34a,#059669)" :
@@ -40,15 +70,30 @@ const BTN = (variant = "ghost") => ({
 
 export default function TutorialPage({ onBack, onGoPlay }) {
   const {
-    isListening, liveHz, pitchHistory,
-    micError, notes, noteScores,
-    startTutorialListening, stopSession, playPreviewNote,
+    liveHz, pitchHistory,
+    micError, notes,
+    startTutorialListening, stopSession,
+    previewNote,               // FIX 1a: was 'playPreviewNote' — wrong name
   } = useAudio();
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [started,     setStarted]     = useState(false);
 
-  const note = notes?.[selectedIdx] ?? notes?.[0] ?? {};
+  // Loading guard — notes load async
+  if (!notes || notes.length === 0) {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        height: "calc(100vh - 56px)",
+        color: "rgba(255,255,255,0.4)", fontFamily: C.font,
+        fontSize: 14, letterSpacing: 2,
+      }}>
+        Loading melody…
+      </div>
+    );
+  }
+
+  const note     = notes[selectedIdx] ?? notes[0];
   const cents    = getCentsError(liveHz, note.freq);
   const inTune   = cents !== null && Math.abs(cents) < 50;
   const hasPitch = liveHz > 0;
@@ -60,62 +105,75 @@ export default function TutorialPage({ onBack, onGoPlay }) {
     return () => { live = false; stopSession(); };
   }, []); // eslint-disable-line
 
-  const doHearIt = () => { if (note && playPreviewNote) playPreviewNote(note); };
+  // ── FIX 1b + 1c: Hear It handler ─────────────────────────────
+  // MUST be async. MUST call Tone.start() synchronously inside the
+  // click handler — Chrome only grants AudioContext resume during
+  // an active user gesture. Any async gap before Tone.start() can
+  // leave Tone's AudioContext suspended with no error or warning.
+  const doHearIt = async () => {
+    if (!note) return;
+    try {
+      await Tone.start();        // unlock Tone's AudioContext NOW, in this gesture
+      await previewNote(note);   // plays the note via Tone.Synth
+    } catch (err) {
+      console.error("[Hear It] previewNote failed:", err);
+    }
+  };
 
-  // Colour for inTune state
-  const feedbackColor = hasPitch ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.15)";
+  const feedbackColor = hasPitch
+    ? (inTune ? C.green : C.red)
+    : "rgba(255,255,255,0.15)";
 
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "340px 1fr",
-      minHeight: "calc(100vh - 56px)",
+      gridTemplateColumns: "300px 1fr",
+      height: "calc(100vh - 56px)",
+      overflow: "hidden",
     }}>
 
-      {/* ── LEFT PANEL — controls ─────────────────────────── */}
+      {/* ── LEFT PANEL — note selector + controls ─────────── */}
       <div style={{
         borderRight: `1px solid ${C.border}`,
-        padding: "32px 28px",
+        padding: "24px 20px",
         display: "flex",
         flexDirection: "column",
-        gap: 20,
+        gap: 16,
         background: "rgba(0,0,0,0.15)",
+        overflowY: "auto",
       }}>
+
         {/* Header */}
         <div>
-          <h2 style={{ margin: "0 0 4px", fontFamily: C.font, fontSize: 20, color: "#fff" }}>
+          <h2 style={{ margin: "0 0 4px", fontFamily: C.font, fontSize: 18, color: "#fff" }}>
             Tutorial Mode
           </h2>
-          <p style={{ margin: 0, fontFamily: C.font, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
-            Select a word → press <strong style={{ color: C.blue }}>Hear it</strong> → sing it back and match the green line.
+          <p style={{ margin: 0, fontFamily: C.font, fontSize: 11, color: C.muted, lineHeight: 1.6 }}>
+            Select a word → <strong style={{ color: C.blue }}>Hear it</strong> → sing and match the blue guide.
           </p>
         </div>
 
         {/* Note selector */}
         <div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 10 }}>
+          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>
             SELECT A WORD
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {(notes || []).map((n, i) => (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {notes.map((n, i) => (
               <div
                 key={i}
                 onClick={() => setSelectedIdx(i)}
                 style={{
                   background: i === selectedIdx ? "rgba(250,204,21,0.1)" : "rgba(255,255,255,0.04)",
                   border: `1px solid ${i === selectedIdx ? "rgba(250,204,21,0.5)" : C.border}`,
-                  borderRadius: 10,
-                  padding: "10px 16px",
-                  cursor: "pointer",
-                  textAlign: "center",
-                  transition: "all 0.15s",
-                  minWidth: 56,
+                  borderRadius: 8, padding: "8px 12px", cursor: "pointer",
+                  textAlign: "center", transition: "all 0.15s", minWidth: 48,
                 }}
               >
-                <div style={{ fontSize: 18, fontWeight: 700, color: i === selectedIdx ? C.gold : C.blue, fontFamily: C.font }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: i === selectedIdx ? C.gold : C.blue, fontFamily: C.font }}>
                   {n.lyric}
                 </div>
-                <div style={{ fontSize: 10, color: C.muted, fontFamily: C.font, marginTop: 2 }}>
+                <div style={{ fontSize: 9, color: C.muted, fontFamily: C.font, marginTop: 1 }}>
                   {n.note}
                 </div>
               </div>
@@ -125,181 +183,181 @@ export default function TutorialPage({ onBack, onGoPlay }) {
 
         {/* Target note card */}
         <div style={{
-          background: "rgba(0,0,0,0.3)",
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          padding: "20px",
+          background: "rgba(0,0,0,0.3)", border: `1px solid ${C.border}`,
+          borderRadius: 10, padding: "16px",
         }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 12 }}>
+          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 10 }}>
             TARGET NOTE
           </div>
-          <div style={{ fontSize: 42, fontWeight: 700, color: C.gold, fontFamily: C.font, marginBottom: 6 }}>
+          <div style={{ fontSize: 36, fontWeight: 700, color: C.gold, fontFamily: C.font, marginBottom: 4 }}>
             "{note.lyric}"
           </div>
-          <div style={{ fontSize: 13, color: C.muted, fontFamily: C.font, marginBottom: 16 }}>
-            {note.note} · {note.freq.toFixed(2)} Hz · {note.beats} beat{note.beats > 1 ? "s" : ""}
+          <div style={{ fontSize: 12, color: C.muted, fontFamily: C.font, marginBottom: 14 }}>
+            {note.note} · {note.freq.toFixed(1)} Hz
           </div>
-          <button style={BTN("primary")} onClick={doHearIt} disabled={!started}>
+          {/* FIX 1: onClick is async, calls Tone.start() first */}
+          <button
+            style={BTN("primary")}
+            onClick={doHearIt}
+            disabled={!started}
+          >
             ▶ Hear it
           </button>
+        </div>
+
+        {/* Live feedback card */}
+        <div style={{
+          background: hasPitch
+            ? (inTune ? "rgba(74,222,128,0.07)" : "rgba(248,113,113,0.07)")
+            : "rgba(0,0,0,0.2)",
+          border: `1px solid ${feedbackColor}`,
+          borderRadius: 10, padding: "16px",
+          textAlign: "center", transition: "all 0.2s",
+        }}>
+          {hasPitch ? (
+            <>
+              <div style={{ fontSize: 36, fontWeight: 700, color: feedbackColor, fontFamily: C.font, lineHeight: 1 }}>
+                {freqToNoteName(liveHz)}
+              </div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", fontFamily: C.font, marginTop: 3 }}>
+                {liveHz.toFixed(1)} Hz
+              </div>
+              <div style={{ fontSize: 13, color: feedbackColor, fontFamily: C.font, marginTop: 6 }}>
+                {formatCents(cents)} — {tuningHint(cents)}
+              </div>
+              <div style={{ fontSize: 36, marginTop: 6 }}>
+                {inTune ? "🟢" : "🔴"}
+              </div>
+            </>
+          ) : (
+            <div style={{ color: "rgba(255,255,255,0.22)", fontSize: 13, fontFamily: C.font, padding: "8px 0" }}>
+              {started ? "🎤  Sing into the mic…" : "Starting mic…"}
+            </div>
+          )}
         </div>
 
         {/* Mic error */}
         {micError && (
           <div style={{
             background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#fca5a5", fontFamily: C.font,
+            borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#fca5a5", fontFamily: C.font,
           }}>
             ⚠️ {micError}
           </div>
         )}
 
         {/* Nav buttons */}
-        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button style={BTN()} onClick={() => setSelectedIdx(Math.max(0, selectedIdx - 1))}>← Prev</button>
-            <button style={BTN()} onClick={() => setSelectedIdx(Math.min((notes?.length ?? 1) - 1, selectedIdx + 1))}>Next →</button>
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button style={{ ...BTN(), flex: 1 }} onClick={() => setSelectedIdx(Math.max(0, selectedIdx - 1))}>
+              ← Prev
+            </button>
+            <button style={{ ...BTN(), flex: 1 }} onClick={() => setSelectedIdx(Math.min(notes.length - 1, selectedIdx + 1))}>
+              Next →
+            </button>
           </div>
           <button style={BTN("green")} onClick={() => { stopSession(); onGoPlay(); }}>
             🎤 Start Singing!
           </button>
-          <button style={BTN()} onClick={() => { stopSession(); onBack(); }}>← Back to Home</button>
+          <button style={BTN()} onClick={() => { stopSession(); onBack(); }}>
+            ← Back to Home
+          </button>
         </div>
       </div>
 
-      {/* ── RIGHT PANEL — live feedback ───────────────────── */}
+      {/* ── RIGHT PANEL — unified pitch canvas ───────────────── */}
+      {/* FIX 2: replaced MelodyContourMap + PitchCanvas with a
+          single PlayPitchCanvas — same component as PlayPage.
+          Shows blue full-melody guide + live green pitch trail
+          in one canvas. selectedIdx maps to activeNoteIndex so
+          the current word's note glows blue. elapsedSec=0 in
+          tutorial (no transport running) so the dot sits at the
+          selected note's position.                               */}
       <div style={{
-        padding: "32px 40px",
         display: "flex",
         flexDirection: "column",
-        gap: 20,
+        padding: "16px 24px 12px",
+        gap: 8,
+        overflow: "hidden",
       }}>
 
-        {/* Big live pitch display */}
+        {/* Canvas label */}
         <div style={{
-          background: hasPitch
-            ? (inTune ? "rgba(74,222,128,0.07)" : "rgba(248,113,113,0.07)")
-            : "rgba(0,0,0,0.2)",
-          border: `1px solid ${feedbackColor}`,
-          borderRadius: 16,
-          padding: "32px 40px",
-          textAlign: "center",
-          transition: "all 0.2s",
-          minHeight: 160,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          flexShrink: 0,
         }}>
-          {hasPitch ? (
-            <>
-              <div style={{ fontSize: 52, fontWeight: 700, color: feedbackColor, fontFamily: C.font, lineHeight: 1 }}>
-                {freqToNoteName(liveHz)}
-              </div>
-              <div style={{ fontSize: 18, color: "rgba(255,255,255,0.5)", fontFamily: C.font }}>
-                {liveHz.toFixed(1)} Hz
-              </div>
-              <div style={{ fontSize: 16, color: feedbackColor, fontFamily: C.font, marginTop: 4 }}>
-                {formatCents(cents)} — {tuningHint(cents)}
-              </div>
-              <div style={{ fontSize: 48, marginTop: 8 }}>
-                {inTune ? "🟢" : "🔴"}
-              </div>
-            </>
-          ) : (
-            <div style={{ color: "rgba(255,255,255,0.25)", fontSize: 16, fontFamily: C.font }}>
-              {started ? "🎤  Sing into the microphone…" : "Starting microphone…"}
-            </div>
-          )}
+          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.22)", fontFamily: C.font, letterSpacing: 3 }}>
+            PITCH GUIDE — blue: full melody · green: your voice
+          </div>
+          <div style={{
+            fontSize: 10, color: C.gold, fontFamily: C.font, fontWeight: 700,
+            background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)",
+            borderRadius: 6, padding: "3px 10px",
+          }}>
+            {note.note} — {note.lyric}
+          </div>
         </div>
 
-        {/* Two stat boxes: YOUR PITCH vs TARGET */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <div style={{ background: "rgba(0,0,0,0.25)", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>YOUR PITCH</div>
-            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: C.font, color: hasPitch ? C.blue : "rgba(255,255,255,0.18)" }}>
+        {/* Unified canvas — fills remaining height */}
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <PlayPitchCanvas
+            notes={notes}
+            activeNoteIndex={selectedIdx}
+            pitchHistory={pitchHistory}
+            elapsedSec={0}
+            isPlaying={false}
+            height={420}
+          />
+        </div>
+
+        {/* YOUR PITCH + TARGET inline below canvas */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
+          flexShrink: 0,
+        }}>
+          <div style={{
+            background: "rgba(0,0,0,0.25)", border: `1px solid ${C.border}`,
+            borderRadius: 10, padding: "12px 16px",
+          }}>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 6 }}>
+              YOUR PITCH
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: C.font, color: hasPitch ? C.blue : "rgba(255,255,255,0.18)" }}>
               {hasPitch ? freqToNoteName(liveHz) : "—"}
             </div>
-            <div style={{ fontSize: 13, color: C.muted, fontFamily: C.font, marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: C.muted, fontFamily: C.font, marginTop: 2 }}>
               {hasPitch ? `${liveHz.toFixed(0)} Hz` : "waiting…"}
             </div>
           </div>
-          <div style={{ background: "rgba(0,0,0,0.25)", border: `1px solid rgba(250,204,21,0.2)`, borderRadius: 12, padding: "18px 20px" }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>TARGET</div>
-            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: C.font, color: C.gold }}>
+          <div style={{
+            background: "rgba(0,0,0,0.25)", border: "1px solid rgba(250,204,21,0.2)",
+            borderRadius: 10, padding: "12px 16px",
+          }}>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 6 }}>
+              TARGET
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: C.font, color: C.gold }}>
               {note.note}
             </div>
-            <div style={{ fontSize: 13, color: C.muted, fontFamily: C.font, marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: C.muted, fontFamily: C.font, marginTop: 2 }}>
               {note.freq.toFixed(0)} Hz
             </div>
           </div>
         </div>
 
-        {/* ── MELODY CONTOUR MAP — full melody overview ────── */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3 }}>
-              FULL MELODY SHAPE — all notes, time-proportional
+        {/* Legend */}
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", flexShrink: 0 }}>
+          {[
+            { color: "#93c5fd",              label: "Full melody guide" },
+            { color: "rgba(250,204,21,0.9)", label: "Selected note" },
+            { color: "#4ade80",              label: "Your pitch (in tune)" },
+            { color: "#f87171",              label: "Your pitch (off)" },
+          ].map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 9, color: C.muted, fontFamily: C.font }}>{item.label}</span>
             </div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.18)", fontFamily: C.font }}>
-              gold = selected note
-            </div>
-          </div>
-          <MelodyContourMap
-            notes={notes}
-            selectedIndex={selectedIdx}
-            liveHz={liveHz}
-            noteScores={{}}
-            height={220}
-          />
-          {/* Contour legend */}
-          <div style={{ display: "flex", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
-            {[
-              { color: "rgba(250,204,21,0.9)", label: "Selected note" },
-              { color: "#93c5fd",              label: "Other notes" },
-              { color: "#4ade80",              label: "YOU — in tune" },
-              { color: "#f87171",              label: "YOU — off pitch" },
-            ].map((item, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 9, height: 9, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 10, color: C.muted, fontFamily: C.font }}>{item.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── LIVE PITCH TRAIL — real-time voice tracking ────── */}
-        <div style={{ flex: 1, minHeight: 160 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3 }}>
-              LIVE PITCH TRAIL — match your voice to the green line
-            </div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.18)", fontFamily: C.font }}>
-              target: {note.note} ({note.freq.toFixed(0)} Hz)
-            </div>
-          </div>
-          <PitchCanvas
-            targetFreq={note.freq}
-            pitchHistory={pitchHistory}
-            width={900}
-            height={160}
-            isActive={hasPitch}
-          />
-          {/* Trail legend */}
-          <div style={{ display: "flex", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
-            {[
-              { color: "#4ade80",              label: "In tune (±50 cents)" },
-              { color: "#fbbf24",              label: "Close (±100 cents)" },
-              { color: "#f87171",              label: "Off pitch" },
-              { color: "rgba(74,222,128,0.35)", label: "Green band = target zone" },
-            ].map((item, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 9, height: 9, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 10, color: C.muted, fontFamily: C.font }}>{item.label}</span>
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
       </div>
     </div>

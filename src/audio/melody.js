@@ -13,6 +13,14 @@ export const RAW_MELODY = [
   { lyric: "child", note: "F4", beats: 1 },
   { lyric: "of",    note: "G4", beats: 2 },
   { lyric: "God",   note: "E4", beats: 3 },
+  
+
+  { lyric: "And",   note: "G4", beats: 1 },
+  { lyric: "he",    note: "C5", beats: 1 },
+  { lyric: "has",   note: "C5", beats: 1 },
+  { lyric: "sent",  note: "B4", beats: 1 },
+  { lyric: "me",    note: "A4", beats: 1 },
+  { lyric: "here,", note: "G4", beats: 2 },
 ];
 
 // Build cumulative startMs / endMs for each note

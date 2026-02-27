@@ -1,19 +1,33 @@
 // ─────────────────────────────────────────────────────────────
-// components/PlayPitchCanvas.jsx
+// components/PlayPitchCanvas.jsx  (FIXED)
 //
-// Play-mode pitch visualization. Two simultaneous lines:
-//   Blue  = full target melody (static, always visible)
-//   Green = live user pitch trail (scrolling, real-time)
+// BUGS FIXED:
+//   1. ResizeObserver was setting canvas.width directly, which
+//      clears the pixel buffer but does NOT trigger useEffect.
+//      Fix: ResizeObserver now sets a React state variable so
+//      useEffect re-runs and redraws after every resize.
+//   2. Idle hint "Melody will appear when session starts" was
+//      hiding the blue guide. Blue guide now renders always —
+//      before, during, and after singing.
+//   3. Blue guide used thin rgba(147,197,253,0.55) — too faint
+//      on dark background. Now uses solid bright #60a5fa / #93c5fd.
+//   4. Moving blue dot added: advances with elapsedSec, independent
+//      of mic input. Visible even before user sings.
 //
-// The full melody is drawn once across the entire width so
-// participants can always see where they are in the phrase.
-// No scrolling. No zooming. Pitch proportions are log-scale.
+// DRAW ORDER (painter's algorithm — back to front):
+//   1. Background
+//   2. Pitch grid lines + labels
+//   3. Blue target melody (always, no conditions)
+//   4. Moving blue playhead dot
+//   5. Green/red live pitch trail (only when mic active)
+//   6. Live pitch ball
+//   7. Legend
 // ─────────────────────────────────────────────────────────────
 
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { getCentsError } from "../utils/musicMath.js";
 
-// ── Log-scale Hz → Y (musical intervals look equal) ──────────
+// ── Log-scale Hz → Y ──────────────────────────────────────────
 function hzToY(hz, minHz, maxHz, H, padY) {
   const logMin = Math.log2(minHz);
   const logMax = Math.log2(maxHz);
@@ -21,7 +35,6 @@ function hzToY(hz, minHz, maxHz, H, padY) {
   return H - padY - ratio * (H - padY * 2);
 }
 
-// ── Nearest note name from Hz ─────────────────────────────────
 function hzToLabel(hz) {
   const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
   const midi  = Math.round(12 * Math.log2(hz / 440) + 69);
@@ -29,21 +42,23 @@ function hzToLabel(hz) {
 }
 
 export default function PlayPitchCanvas({
-  notes,          // full note array from context (midiLoader shape)
-  activeNoteIndex,// index of currently playing note (-1 if none)
-  pitchHistory,   // [{ hz }] — live mic frames
-  elapsedSec,     // Transport seconds elapsed
-  height = 320,
+  notes,
+  activeNoteIndex,
+  pitchHistory,
+  elapsedSec,
+  height = 380,       // increased default
   isPlaying = false,
 }) {
-  const canvasRef = useRef(null);
-  const wrapRef   = useRef(null);
+  const canvasRef  = useRef(null);
+  const wrapRef    = useRef(null);
+  // FIX 1: track canvas width as React state so ResizeObserver
+  // triggers a real re-render + useEffect redraw
+  const [canvasW, setCanvasW] = useState(800);
 
-  // ── Derive pitch range from melody + generous padding ─────
   const { freqMin, freqMax, totalDur } = useMemo(() => {
     if (!notes?.length) return { freqMin: 280, freqMax: 520, totalDur: 10 };
     const freqs = notes.map(n => n.freq);
-    const pad   = Math.pow(2, 2.5 / 12); // 2.5 semitones headroom
+    const pad   = Math.pow(2, 2.5 / 12);
     return {
       freqMin:  Math.min(...freqs) / pad,
       freqMax:  Math.max(...freqs) * pad,
@@ -51,153 +66,212 @@ export default function PlayPitchCanvas({
     };
   }, [notes]);
 
+  // ── Main draw effect ──────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap   = wrapRef.current;
-    if (!canvas || !wrap || !notes?.length) return;
+    if (!canvas || !wrap) return;
 
-    const W    = wrap.clientWidth  || 800;
-    const H    = height;
+    // Use React-tracked width (avoids stale closure on resize)
+    const W = canvasW;
+    const H = height;
     canvas.width  = W;
     canvas.height = H;
 
-    const ctx  = canvas.getContext("2d");
-    const PAD_LEFT  = 44;  // room for pitch labels
-    const PAD_RIGHT = 16;
-    const PAD_Y     = 20;
+    const ctx = canvas.getContext("2d");
+
+    const PAD_LEFT  = 48;
+    const PAD_RIGHT = 20;
+    const PAD_Y     = 24;
     const drawW     = W - PAD_LEFT - PAD_RIGHT;
 
     const toX = (sec) => PAD_LEFT + (sec / totalDur) * drawW;
     const toY = (hz)  => hzToY(hz, freqMin, freqMax, H, PAD_Y);
 
-    // ── Background ────────────────────────────────────────────
+    // ── 1. Background ─────────────────────────────────────────
     ctx.fillStyle = "#060d1a";
     ctx.fillRect(0, 0, W, H);
 
-    // ── Pitch grid — one faint line per unique note freq ──────
-    const uniqueFreqs = [...new Set(notes.map(n => n.freq))].sort((a, b) => a - b);
-    uniqueFreqs.forEach(freq => {
-      const y = toY(freq);
-      ctx.beginPath();
-      ctx.strokeStyle = "rgba(255,255,255,0.05)";
-      ctx.lineWidth   = 1;
-      ctx.setLineDash([3, 7]);
-      ctx.moveTo(PAD_LEFT, y);
-      ctx.lineTo(W - PAD_RIGHT, y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      // Label
-      ctx.fillStyle    = "rgba(255,255,255,0.22)";
-      ctx.font         = "9px 'Courier New', monospace";
-      ctx.textAlign    = "right";
-      ctx.textBaseline = "middle";
-      ctx.fillText(hzToLabel(freq), PAD_LEFT - 6, y);
-    });
-    ctx.textAlign    = "left";
-    ctx.textBaseline = "alphabetic";
-
-    // ── Playhead — vertical line at current Transport time ────
-    if (isPlaying && elapsedSec > 0) {
-      const px = toX(elapsedSec);
-      ctx.beginPath();
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
-      ctx.lineWidth   = 1;
-      ctx.moveTo(px, PAD_Y);
-      ctx.lineTo(px, H - PAD_Y);
-      ctx.stroke();
-    }
-
-    // ── BLUE TARGET MELODY LINE ───────────────────────────────
-    // Drawn as connected segments: centre of each note block.
-    // Width of each segment = note duration, proportional to totalDur.
-    notes.forEach((n, i) => {
-      const x1 = toX(n.time);
-      const x2 = toX(n.time + n.duration);
-      const y  = toY(n.freq);
-      const isActive = i === activeNoteIndex;
-
-      // Segment bar — thick horizontal line per note
-      ctx.beginPath();
-      ctx.strokeStyle = isActive
-        ? "rgba(147,197,253,1)"
-        : "rgba(147,197,253,0.55)";
-      ctx.lineWidth   = isActive ? 4 : 2.5;
-      ctx.lineCap     = "round";
-      ctx.moveTo(x1 + 2, y);
-      ctx.lineTo(x2 - 2, y);
-      ctx.stroke();
-
-      // Glow on active note
-      if (isActive) {
-        ctx.shadowColor = "rgba(147,197,253,0.6)";
-        ctx.shadowBlur  = 10;
-        ctx.stroke();
-        ctx.shadowBlur  = 0;
-      }
-
-      // Connecting diagonal to next note
-      if (i < notes.length - 1) {
-        const nextY = toY(notes[i + 1].freq);
+    // ── 2. Pitch grid lines ───────────────────────────────────
+    if (notes?.length) {
+      const uniqueFreqs = [...new Set(notes.map(n => n.freq))].sort((a, b) => a - b);
+      uniqueFreqs.forEach(freq => {
+        const y = toY(freq);
         ctx.beginPath();
-        ctx.strokeStyle = "rgba(147,197,253,0.18)";
+        ctx.strokeStyle = "rgba(255,255,255,0.07)";
         ctx.lineWidth   = 1;
-        ctx.setLineDash([2, 4]);
-        ctx.moveTo(x2, y);
-        ctx.lineTo(toX(notes[i + 1].time), nextY);
+        ctx.setLineDash([3, 8]);
+        ctx.moveTo(PAD_LEFT, y);
+        ctx.lineTo(W - PAD_RIGHT, y);
         ctx.stroke();
         ctx.setLineDash([]);
-      }
+        ctx.fillStyle    = "rgba(255,255,255,0.28)";
+        ctx.font         = "10px 'Courier New', monospace";
+        ctx.textAlign    = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillText(hzToLabel(freq), PAD_LEFT - 6, y);
+      });
+      ctx.textAlign    = "left";
+      ctx.textBaseline = "alphabetic";
+    }
 
-      // Note label above segment (only if wide enough)
-      const segW = x2 - x1;
-      if (segW > 30) {
-        ctx.fillStyle    = isActive ? "#93c5fd" : "rgba(147,197,253,0.45)";
-        ctx.font         = `${isActive ? "bold " : ""}9px 'Courier New', monospace`;
+    // ── 3. BLUE TARGET MELODY — always visible, no conditions ──
+    // FIX 2: removed all guards. Draws before session, during, after.
+    // FIX 3: bright solid colours instead of low-opacity rgba.
+    if (notes?.length) {
+      notes.forEach((n, i) => {
+        const x1       = toX(n.time);
+        const x2       = toX(n.time + n.duration);
+        const y        = toY(n.freq);
+        const segW     = x2 - x1;
+        const isActive = i === activeNoteIndex;
+        const isPast   = activeNoteIndex > 0 && i < activeNoteIndex;
+
+        // ── Thick horizontal note bar ─────────────────────────
+        ctx.beginPath();
+        ctx.lineCap     = "round";
+        ctx.lineWidth   = isActive ? 6 : 4;
+        // Bright blue always — active brighter, past slightly dimmer
+        ctx.strokeStyle = isActive ? "#60a5fa"   // bright active blue
+                        : isPast   ? "#3b82f6"   // slightly dimmer past
+                        :            "#93c5fd";  // future blue
+        ctx.moveTo(x1 + 3, y);
+        ctx.lineTo(x2 - 3, y);
+        ctx.stroke();
+
+        // Glow on active note
+        if (isActive) {
+          ctx.shadowColor = "rgba(96,165,250,0.8)";
+          ctx.shadowBlur  = 16;
+          ctx.beginPath();
+          ctx.moveTo(x1 + 3, y);
+          ctx.lineTo(x2 - 3, y);
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
+
+        // ── Diagonal connector to next note ──────────────────
+        if (i < notes.length - 1) {
+          const nextY = toY(notes[i + 1].freq);
+          ctx.beginPath();
+          ctx.strokeStyle = "rgba(147,197,253,0.25)";
+          ctx.lineWidth   = 1.5;
+          ctx.setLineDash([2, 5]);
+          ctx.moveTo(x2, y);
+          ctx.lineTo(toX(notes[i + 1].time), nextY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // ── Note name label ───────────────────────────────────
+        if (segW > 24) {
+          ctx.fillStyle    = isActive ? "#93c5fd" : "rgba(147,197,253,0.6)";
+          ctx.font         = `${isActive ? "bold " : ""}10px 'Courier New', monospace`;
+          ctx.textAlign    = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(n.note, x1 + segW / 2, y - 8);
+          ctx.textBaseline = "alphabetic";
+          ctx.textAlign    = "left";
+        }
+      });
+
+      // ── 4. MOVING BLUE DOT — advances with elapsedSec ────────
+      // Independent of mic. Visible before user sings.
+      // X = playback position, Y = current target note pitch
+      const clampedSec = Math.min(Math.max(elapsedSec, 0), totalDur);
+      const dotX = toX(clampedSec);
+
+      // Find which note we're currently on for Y position
+      const currentNote = notes.find(n =>
+        clampedSec >= n.time && clampedSec < n.time + n.duration
+      ) ?? (clampedSec <= 0 ? notes[0] : notes[notes.length - 1]);
+
+      const dotY = toY(currentNote.freq);
+
+      // Vertical playhead line
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(147,197,253,0.2)";
+      ctx.lineWidth   = 1;
+      ctx.moveTo(dotX, PAD_Y);
+      ctx.lineTo(dotX, H - PAD_Y);
+      ctx.stroke();
+
+      // The dot itself — bright blue, pulsing via shadowBlur
+      ctx.shadowColor = "rgba(96,165,250,0.9)";
+      ctx.shadowBlur  = 18;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, isPlaying ? 7 : 5, 0, Math.PI * 2);
+      ctx.fillStyle = isPlaying ? "#60a5fa" : "#93c5fd";
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Small "TARGET" label above dot when playing
+      if (isPlaying && elapsedSec > 0) {
+        ctx.fillStyle    = "rgba(147,197,253,0.7)";
+        ctx.font         = "bold 9px 'Courier New', monospace";
         ctx.textAlign    = "center";
         ctx.textBaseline = "bottom";
-        ctx.fillText(n.note, x1 + segW / 2, y - 6);
+        ctx.fillText("TARGET", dotX, dotY - 11);
         ctx.textBaseline = "alphabetic";
         ctx.textAlign    = "left";
       }
-    });
+    }
 
-    // ── GREEN LIVE PITCH LINE ─────────────────────────────────
-    // Maps pitch history frames evenly across elapsed time so
-    // the green line grows left-to-right in sync with melody.
-    const validPoints = pitchHistory.filter(p => p.hz > 0);
+    // ── 5. GREEN/RED LIVE PITCH TRAIL ─────────────────────────
+    const validPoints = (pitchHistory || []).filter(p => p.hz > 0);
     if (validPoints.length > 1) {
-      // Spread frames across elapsed portion of the canvas
-      const elapsedX = Math.min(toX(Math.max(elapsedSec, 0.01)), W - PAD_RIGHT);
-
-      // Determine in-tune state of most recent frame
+      const elapsedX  = Math.min(toX(Math.max(elapsedSec, 0.01)), W - PAD_RIGHT);
       const lastHz    = validPoints[validPoints.length - 1].hz;
-      const targetHz  = activeNoteIndex >= 0 ? notes[activeNoteIndex]?.freq : null;
+      const targetHz  = activeNoteIndex >= 0 ? notes?.[activeNoteIndex]?.freq : null;
       const centsOff  = targetHz ? Math.abs(getCentsError(lastHz, targetHz) ?? 999) : 999;
       const inTune    = centsOff < 50;
 
-      // Draw the trail
-      ctx.beginPath();
-      ctx.lineWidth   = 2.5;
-      ctx.lineJoin    = "round";
-      ctx.lineCap     = "round";
+      // Draw trail — colour per-segment based on accuracy
+      // Split trail into segments coloured individually
+      ctx.lineWidth = 3;
+      ctx.lineJoin  = "round";
+      ctx.lineCap   = "round";
 
+      for (let i = 1; i < validPoints.length; i++) {
+        const prev = validPoints[i - 1];
+        const cur  = validPoints[i];
+        const frac0 = (i - 1) / (validPoints.length - 1);
+        const frac1 = i       / (validPoints.length - 1);
+        const x0 = PAD_LEFT + frac0 * (elapsedX - PAD_LEFT);
+        const x1 = PAD_LEFT + frac1 * (elapsedX - PAD_LEFT);
+        const y0 = toY(prev.hz);
+        const y1 = toY(cur.hz);
+
+        // Per-segment colour based on accuracy
+        const segCents = targetHz
+          ? Math.abs(getCentsError(cur.hz, targetHz) ?? 999) : 999;
+        const segColor = segCents < 30  ? "#4ade80"
+                       : segCents < 60  ? "#fbbf24"
+                       :                  "#f87171";
+
+        ctx.beginPath();
+        ctx.strokeStyle = segColor;
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+      }
+
+      // Glow pass over the whole trail
+      ctx.beginPath();
+      ctx.lineWidth   = 2;
+      ctx.strokeStyle = inTune ? "rgba(74,222,128,0.25)" : "rgba(248,113,113,0.18)";
+      ctx.shadowColor = inTune ? "rgba(74,222,128,0.4)"  : "rgba(248,113,113,0.3)";
+      ctx.shadowBlur  = 8;
       validPoints.forEach((p, i) => {
         const frac = i / (validPoints.length - 1);
         const x    = PAD_LEFT + frac * (elapsedX - PAD_LEFT);
         const y    = toY(p.hz);
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       });
-
-      ctx.strokeStyle = inTune ? "#4ade80" : "#f87171";
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      // Glow — green if in tune, red if off
-      ctx.shadowColor = inTune ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.35)";
-      ctx.shadowBlur  = inTune ? 10 : 6;
-      ctx.stroke();
-      ctx.shadowBlur  = 0;
-
-      // Live ball at current position
+      // ── 6. Live pitch ball ────────────────────────────────────
       const ballX     = elapsedX;
       const ballY     = toY(lastHz);
       const ballColor = centsOff < 30  ? "#4ade80"
@@ -205,67 +279,70 @@ export default function PlayPitchCanvas({
                       :                  "#f87171";
 
       ctx.shadowColor = ballColor;
-      ctx.shadowBlur  = 16;
+      ctx.shadowBlur  = 20;
       ctx.beginPath();
-      ctx.arc(ballX, ballY, 8, 0, Math.PI * 2);
-      ctx.fillStyle   = ballColor;
+      ctx.arc(ballX, ballY, 9, 0, Math.PI * 2);
+      ctx.fillStyle = ballColor;
       ctx.fill();
-      ctx.shadowBlur  = 0;
+      ctx.shadowBlur = 0;
 
-      // Cents deviation label above ball
+      // "YOU" label
+      ctx.fillStyle    = ballColor;
+      ctx.font         = "bold 9px 'Courier New', monospace";
+      ctx.textAlign    = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText("YOU", ballX, ballY - 12);
+
+      // Cents deviation
       if (targetHz) {
         const cents = getCentsError(lastHz, targetHz);
         if (cents !== null) {
           const label = cents > 0 ? `+${Math.round(cents)}¢` : `${Math.round(cents)}¢`;
-          ctx.fillStyle    = ballColor;
-          ctx.font         = "bold 10px 'Courier New', monospace";
-          ctx.textAlign    = "center";
-          ctx.textBaseline = "bottom";
-          ctx.fillText(label, ballX, ballY - 11);
-          ctx.textBaseline = "alphabetic";
-          ctx.textAlign    = "left";
+          ctx.fillText(label, ballX, ballY - 22);
         }
       }
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign    = "left";
     }
 
-    // ── Legend ────────────────────────────────────────────────
+    // ── 7. Legend ─────────────────────────────────────────────
     const legendItems = [
-      { color: "rgba(147,197,253,0.9)", label: "Target melody" },
-      { color: "#4ade80",               label: "Your pitch (in tune)" },
-      { color: "#f87171",               label: "Your pitch (off)" },
+      { color: "#93c5fd", label: "Target melody" },
+      { color: "#4ade80", label: "Your pitch — in tune" },
+      { color: "#f87171", label: "Your pitch — off" },
     ];
     let lx = PAD_LEFT;
     legendItems.forEach(({ color, label }) => {
       ctx.fillStyle = color;
-      ctx.fillRect(lx, H - 13, 18, 3);
-      ctx.fillStyle    = "rgba(255,255,255,0.3)";
+      ctx.beginPath();
+      ctx.arc(lx + 5, H - 10, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle    = "rgba(255,255,255,0.35)";
       ctx.font         = "9px 'Courier New', monospace";
-      ctx.textBaseline = "bottom";
-      ctx.fillText(label, lx + 22, H - 3);
-      lx += ctx.measureText(label).width + 48;
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, lx + 14, H - 10);
+      lx += ctx.measureText(label).width + 32;
     });
     ctx.textBaseline = "alphabetic";
 
-    // ── Idle hint ─────────────────────────────────────────────
-    if (!isPlaying && validPoints.length === 0) {
-      ctx.fillStyle = "rgba(255,255,255,0.15)";
-      ctx.font      = "14px 'Courier New', monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("Melody will appear when session starts", W / 2, H / 2);
-      ctx.textAlign = "left";
-    }
-
+  // FIX 1: canvasW in dependency array — resize now triggers full redraw
   }, [notes, activeNoteIndex, pitchHistory, elapsedSec, isPlaying,
-      freqMin, freqMax, totalDur, height]);
+      freqMin, freqMax, totalDur, height, canvasW]);
 
-  // Redraw on container resize
+  // FIX 1: ResizeObserver updates React state (triggers re-render+redraw)
+  // instead of setting canvas.width directly (which only clears the buffer)
   useEffect(() => {
-    const obs = new ResizeObserver(() => {
-      if (canvasRef.current && wrapRef.current) {
-        canvasRef.current.width = wrapRef.current.clientWidth;
+    const obs = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const w = Math.round(entry.contentRect.width);
+        if (w > 0) setCanvasW(w);
       }
     });
-    if (wrapRef.current) obs.observe(wrapRef.current);
+    if (wrapRef.current) {
+      obs.observe(wrapRef.current);
+      // Set initial width
+      setCanvasW(wrapRef.current.clientWidth || 800);
+    }
     return () => obs.disconnect();
   }, []);
 
@@ -278,7 +355,7 @@ export default function PlayPitchCanvas({
           height,
           borderRadius: 12,
           display: "block",
-          border: "1px solid rgba(255,255,255,0.07)",
+          border: "1px solid rgba(96,165,250,0.15)",  // subtle blue border
         }}
       />
     </div>

@@ -13,6 +13,8 @@ import {
   averageScores,
   calculateFinalScore
 } from "../utils/musicMath.js";
+  import * as Tone from "tone";
+
 
 const AudioCtx = createContext(null);
 
@@ -215,10 +217,27 @@ export function AudioProvider({ children }) {
     setActiveNote(null);
     setElapsedMs(0);
   }, [stopSession]);
+  
 
   // ─────────────────────────────────────
   // 🔥 PROVIDER
   // ─────────────────────────────────────
+
+const previewSynthRef = useRef(null);
+
+const previewNote = useCallback(async (note) => {
+  if (!note) return;
+
+  if (!previewSynthRef.current) {
+    previewSynthRef.current = new Tone.Synth().toDestination();
+  }
+
+  previewSynthRef.current.triggerAttackRelease(
+    note.note || note.freq,
+    "1n"
+  );
+
+}, []);
   return (
     <AudioCtx.Provider
       value={{
@@ -232,6 +251,7 @@ export function AudioProvider({ children }) {
         activeNote,
         elapsedMs,
         notes,            // ← FIXED
+        previewNote,
         noteScores,
         finalScore,
         pitchHistory,

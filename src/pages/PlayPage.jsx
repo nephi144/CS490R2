@@ -214,10 +214,10 @@ export default function PlayPage({ onBack, onComplete }) {
               - Full blue melody line (all notes, time-proportional)
               - Live green pitch trail overlaid
             No scrolling. Entire phrase visible at once.           */}
-      <div style={{ flex: "0 0 58%", padding: "14px 28px 8px", minHeight: 0 }}>
+      <div style={{ flex: "0 0 62%", padding: "10px 20px 4px", minHeight: 0 }}>
         <div style={{
           fontSize: 9, color: "rgba(255,255,255,0.2)", fontFamily: C.font,
-          letterSpacing: 3, marginBottom: 8,
+          letterSpacing: 3, marginBottom: 6,
         }}>
           PITCH VISUALIZER — blue: target melody · green: your voice
         </div>
@@ -227,7 +227,7 @@ export default function PlayPage({ onBack, onComplete }) {
           pitchHistory={pitchHistory}
           elapsedSec={elapsedSec}
           isPlaying={isPlaying}
-          height={260}
+          height={360}
         />
       </div>
 
@@ -237,10 +237,10 @@ export default function PlayPage({ onBack, onComplete }) {
             Current = large gold + pulsing underline.
             Future = faded grey.                                   */}
       <div style={{
-        borderTop:    `1px solid ${C.border}`,
-        borderBottom: `1px solid ${C.border}`,
-        background:   "rgba(0,0,0,0.25)",
+        borderTop:    `1px solid rgba(255,255,255,0.06)`,
+        background:   "rgba(0,0,0,0.18)",
         flexShrink:   0,
+        padding:      "0 20px",
       }}>
         <KaraokeLyrics
           notes={notes}
