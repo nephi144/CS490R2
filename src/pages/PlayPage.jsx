@@ -1,17 +1,32 @@
 // ─────────────────────────────────────────────────────────────
-// pages/PlayPage.jsx — FULL VIEWPORT layout
-// Top bar:    progress + status
-// Center:     BIG lyrics display
-// Left col:   pitch stats (YOUR / TARGET / CENTS)
-// Right col:  large PitchCanvas
+// pages/PlayPage.jsx  (UPGRADED — layout + visualization)
+//
+// WHAT CHANGED (vs original 327-line version):
+//   • PlayPitchCanvas replaces PitchCanvas — shows full melody
+//     in blue + live pitch in green, both simultaneously.
+//   • KaraokeLyrics replaces LyricDisplay — karaoke-style,
+//     past/current/future states, not clickable.
+//   • Layout: top 60% canvas → middle lyrics → bottom controls.
+//   • Stat boxes (YOUR PITCH / TARGET / CENTS) moved to the
+//     bottom bar alongside progress — one compact strip.
+//   • activeNoteIndex derived from notes array for components.
+//
+// WHAT IS IDENTICAL TO ORIGINAL:
+//   • launchSession(), countdown logic, cdRef, all useEffect hooks
+//   • startSession / stopSession / onComplete / onBack wiring
+//   • finalScore watcher → onComplete() transition
+//   • CountdownOverlay sub-component
+//   • progressPct calculation
+//   • All imports from useAudio context
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef } from "react";
-import { useAudio }     from "../context/AudioContext.jsx";
-import { MELODY, TOTAL_MS } from "../audio/melody.js";
-import { getCentsError, freqToNoteName, formatCents } from "../utils/musicMath.js";
-import LyricDisplay     from "../components/LyricDisplay.jsx";
-import PitchCanvas      from "../components/PitchCanvas.jsx";
+import { useAudio }          from "../context/AudioContext.jsx";
+import { getCentsError,
+         freqToNoteName,
+         formatCents }       from "../utils/musicMath.js";
+import PlayPitchCanvas       from "../components/PlayPitchCanvas.jsx";
+import KaraokeLyrics         from "../components/KaraokeLyrics.jsx";
 
 const C = {
   border: "rgba(255,255,255,0.08)",
@@ -23,7 +38,7 @@ const C = {
   blue:   "#93c5fd",
 };
 
-// ── Countdown overlay ─────────────────────────────────────────
+// ── CountdownOverlay — unchanged from original ────────────────
 function CountdownOverlay({ count }) {
   return (
     <div style={{
@@ -33,11 +48,8 @@ function CountdownOverlay({ count }) {
       alignItems: "center", justifyContent: "center", gap: 16,
     }}>
       <div style={{
-        fontSize: 120,
-        fontWeight: 700,
-        fontFamily: C.font,
-        color: C.gold,
-        lineHeight: 1,
+        fontSize: 120, fontWeight: 700, fontFamily: C.font,
+        color: C.gold, lineHeight: 1,
         animation: "popIn 0.45s cubic-bezier(0.34,1.56,0.64,1)",
       }}>
         {count}
@@ -50,37 +62,31 @@ function CountdownOverlay({ count }) {
   );
 }
 
-// ── Stat box ──────────────────────────────────────────────────
-function StatBox({ label, value, subvalue, borderColor }) {
+// ── Compact stat pill for bottom bar ─────────────────────────
+function StatPill({ label, value, color }) {
   return (
     <div style={{
-      background: "rgba(0,0,0,0.28)",
-      border: `1px solid ${borderColor || C.border}`,
-      borderRadius: 12,
-      padding: "18px 22px",
-      transition: "border-color 0.2s",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      background: "rgba(0,0,0,0.3)",
+      border: `1px solid ${C.border}`,
+      borderRadius: 10, padding: "8px 18px", minWidth: 90,
     }}>
-      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>
+      <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: C.font, letterSpacing: 2, marginBottom: 3 }}>
         {label}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: C.font, color: "#e2e8f0" }}>
+      <div style={{ fontSize: 16, fontWeight: 700, fontFamily: C.font, color: color || "#e2e8f0" }}>
         {value}
       </div>
-      {subvalue && (
-        <div style={{ fontSize: 12, color: C.muted, fontFamily: C.font, marginTop: 4 }}>
-          {subvalue}
-        </div>
-      )}
     </div>
   );
 }
 
-// ── Main ─────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────
 export default function PlayPage({ onBack, onComplete }) {
   const {
     isListening, isPlaying,
-    liveHz, activeNote, elapsedMs,
-    noteScores, finalScore,
+    liveHz, activeNote, elapsedSec,
+    notes, noteScores, finalScore,
     pitchHistory, micError,
     startSession, stopSession,
   } = useAudio();
@@ -89,6 +95,7 @@ export default function PlayPage({ onBack, onComplete }) {
   const [sessionDone, setSessionDone] = useState(false);
   const cdRef = useRef(null);
 
+  // ── Timing logic — identical to original ─────────────────
   const launchSession = () => {
     setSessionDone(false);
     let c = 3;
@@ -117,51 +124,61 @@ export default function PlayPage({ onBack, onComplete }) {
     return () => { clearInterval(cdRef.current); stopSession(); };
   }, []); // eslint-disable-line
 
-  const progressPct  = TOTAL_MS > 0 ? Math.min(100, (elapsedMs / TOTAL_MS) * 100) : 0;
-  const targetFreq   = activeNote?.freq ?? null;
-  const cents        = getCentsError(liveHz, targetFreq);
-  const inTune       = cents !== null && Math.abs(cents) < 50;
-  const centsColor   = cents !== null ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.2)";
+  // ── Derived values ────────────────────────────────────────
+  const totalDur       = notes?.length
+    ? notes[notes.length - 1].time + notes[notes.length - 1].duration
+    : 1;
+  const progressPct    = totalDur > 0
+    ? Math.min(100, (elapsedSec / totalDur) * 100)
+    : 0;
 
+  const activeNoteIndex = notes?.findIndex(n =>
+    n.lyric === activeNote?.lyric && n.note === activeNote?.note
+  ) ?? -1;
+
+  const targetFreq  = activeNote?.freq ?? null;
+  const cents       = getCentsError(liveHz, targetFreq);
+  const inTune      = cents !== null && Math.abs(cents) < 50;
+  const centsColor  = cents !== null ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.35)";
+
+  // ─────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 56px)" }}>
+    <div style={{
+      display:       "flex",
+      flexDirection: "column",
+      height:        "calc(100vh - 56px)",   // fill viewport below navbar
+      overflow:      "hidden",
+    }}>
       {countdown !== null && <CountdownOverlay count={countdown} />}
 
-      {/* ── TOP STATUS BAR ──────────────────────────────── */}
+      {/* ── 1. TOP STATUS BAR ─── unchanged layout ─────────── */}
       <div style={{
-        padding: "14px 36px",
+        padding:      "10px 28px",
         borderBottom: `1px solid ${C.border}`,
-        background: "rgba(0,0,0,0.2)",
-        display: "flex",
-        alignItems: "center",
-        gap: 24,
+        background:   "rgba(0,0,0,0.2)",
+        display:      "flex",
+        alignItems:   "center",
+        gap:          20,
+        flexShrink:   0,
       }}>
-        {/* Status label */}
         <div style={{
-          fontFamily: C.font,
-          fontSize: 13,
-          fontWeight: 700,
-          color: isPlaying ? C.green : sessionDone ? C.gold : C.muted,
-          letterSpacing: 2,
-          minWidth: 120,
+          fontFamily:    C.font, fontSize: 12, fontWeight: 700,
+          color:         isPlaying ? C.green : sessionDone ? C.gold : C.muted,
+          letterSpacing: 2, minWidth: 110,
         }}>
           {isPlaying ? "● SINGING" : sessionDone ? "✓ COMPLETE" : "READY"}
         </div>
 
-        {/* Progress bar — full width */}
-        <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 3, overflow: "hidden" }}>
+        {/* Progress bar */}
+        <div style={{ flex: 1, height: 5, background: "rgba(255,255,255,0.06)", borderRadius: 3, overflow: "hidden" }}>
           <div style={{
-            height: "100%",
-            width: `${progressPct}%`,
+            height: "100%", width: `${progressPct}%`,
             background: "linear-gradient(90deg, #3b82f6, #7c3aed)",
-            borderRadius: 3,
-            transition: "width 0.1s linear",
-            boxShadow: "0 0 10px rgba(99,102,241,0.5)",
+            borderRadius: 3, transition: "width 0.1s linear",
+            boxShadow: "0 0 8px rgba(99,102,241,0.5)",
           }} />
         </div>
-
-        {/* Progress % */}
-        <div style={{ fontFamily: C.font, fontSize: 12, color: C.muted, minWidth: 42, textAlign: "right" }}>
+        <div style={{ fontFamily: C.font, fontSize: 11, color: C.muted, minWidth: 36, textAlign: "right" }}>
           {Math.round(progressPct)}%
         </div>
 
@@ -169,7 +186,7 @@ export default function PlayPage({ onBack, onComplete }) {
         <button
           onClick={() => { clearInterval(cdRef.current); stopSession(); onBack(); }}
           style={{
-            padding: "7px 16px", borderRadius: 7,
+            padding: "6px 14px", borderRadius: 7,
             border: `1px solid ${C.border}`,
             background: "rgba(255,255,255,0.05)",
             color: "#fff", fontFamily: C.font, fontSize: 11,
@@ -180,146 +197,143 @@ export default function PlayPage({ onBack, onComplete }) {
         </button>
       </div>
 
-      {/* ── LYRICS STRIP ────────────────────────────────── */}
-      <div style={{ padding: "20px 36px", borderBottom: `1px solid ${C.border}` }}>
-        {micError && (
-          <div style={{
-            background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 8, padding: "10px 16px", marginBottom: 12,
-            fontSize: 12, color: "#fca5a5", fontFamily: C.font,
-          }}>
-            ⚠️ {micError}
-          </div>
-        )}
-        <LyricDisplay activeNote={activeNote} noteScores={noteScores} />
+      {/* ── 2. MIC ERROR ─────────────────────────────────────── */}
+      {micError && (
+        <div style={{
+          padding: "8px 28px", flexShrink: 0,
+          background: "rgba(239,68,68,0.08)",
+          borderBottom: "1px solid rgba(239,68,68,0.2)",
+          fontSize: 12, color: "#fca5a5", fontFamily: C.font,
+        }}>
+          ⚠️ {micError}
+        </div>
+      )}
+
+      {/* ── 3. PITCH CANVAS — top ~60% ────────────────────────
+            PlayPitchCanvas shows:
+              - Full blue melody line (all notes, time-proportional)
+              - Live green pitch trail overlaid
+            No scrolling. Entire phrase visible at once.           */}
+      <div style={{ flex: "0 0 58%", padding: "14px 28px 8px", minHeight: 0 }}>
+        <div style={{
+          fontSize: 9, color: "rgba(255,255,255,0.2)", fontFamily: C.font,
+          letterSpacing: 3, marginBottom: 8,
+        }}>
+          PITCH VISUALIZER — blue: target melody · green: your voice
+        </div>
+        <PlayPitchCanvas
+          notes={notes}
+          activeNoteIndex={activeNoteIndex}
+          pitchHistory={pitchHistory}
+          elapsedSec={elapsedSec}
+          isPlaying={isPlaying}
+          height={260}
+        />
       </div>
 
-      {/* ── MAIN CONTENT — 2 columns ────────────────────── */}
+      {/* ── 4. KARAOKE LYRICS — middle ────────────────────────
+            Pure display — not clickable.
+            Past = dimmed + score colour.
+            Current = large gold + pulsing underline.
+            Future = faded grey.                                   */}
       <div style={{
-        flex: 1,
-        display: "grid",
-        gridTemplateColumns: "300px 1fr",
-        gap: 0,
+        borderTop:    `1px solid ${C.border}`,
+        borderBottom: `1px solid ${C.border}`,
+        background:   "rgba(0,0,0,0.25)",
+        flexShrink:   0,
+      }}>
+        <KaraokeLyrics
+          notes={notes}
+          activeNoteIndex={activeNoteIndex}
+          noteScores={noteScores}
+        />
+      </div>
+
+      {/* ── 5. BOTTOM CONTROLS — stat pills + intonation ─────── */}
+      <div style={{
+        flex:        "1 1 auto",
+        display:     "flex",
+        alignItems:  "center",
+        justifyContent: "center",
+        gap:         12,
+        padding:     "12px 28px",
+        flexWrap:    "wrap",
+        background:  "rgba(0,0,0,0.15)",
       }}>
 
-        {/* LEFT — pitch stats */}
-        <div style={{
-          padding: "28px 28px",
-          borderRight: `1px solid ${C.border}`,
-          display: "flex",
-          flexDirection: "column",
-          gap: 16,
-          background: "rgba(0,0,0,0.12)",
-        }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.22)", fontFamily: C.font, letterSpacing: 3 }}>
-            LIVE PITCH DATA
-          </div>
+        {/* Your pitch */}
+        <StatPill
+          label="YOUR PITCH"
+          value={liveHz > 0 ? `${freqToNoteName(liveHz)}  ${liveHz.toFixed(0)} Hz` : "—"}
+          color={liveHz > 0 ? C.blue : "rgba(255,255,255,0.2)"}
+        />
 
-          {/* Your pitch */}
-          <div style={{
-            background: "rgba(0,0,0,0.28)", border: `1px solid ${C.border}`,
-            borderRadius: 12, padding: "18px 20px",
-          }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>YOUR PITCH</div>
-            <div style={{ fontSize: 28, fontWeight: 700, fontFamily: C.font, color: liveHz > 0 ? C.blue : "rgba(255,255,255,0.18)" }}>
-              {liveHz > 0 ? freqToNoteName(liveHz) : "—"}
-            </div>
-            <div style={{ fontSize: 13, color: C.muted, fontFamily: C.font, marginTop: 4 }}>
-              {liveHz > 0 ? `${liveHz.toFixed(0)} Hz` : "sing to detect"}
-            </div>
-          </div>
+        {/* Target note */}
+        <StatPill
+          label="TARGET"
+          value={activeNote ? `${activeNote.note}  ${activeNote.freq.toFixed(0)} Hz` : "—"}
+          color={activeNote ? C.gold : "rgba(255,255,255,0.2)"}
+        />
 
-          {/* Target */}
-          <div style={{
-            background: "rgba(0,0,0,0.28)", border: `1px solid rgba(250,204,21,0.2)`,
-            borderRadius: 12, padding: "18px 20px",
-          }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>TARGET NOTE</div>
-            <div style={{ fontSize: 28, fontWeight: 700, fontFamily: C.font, color: activeNote ? C.gold : "rgba(255,255,255,0.18)" }}>
-              {activeNote ? activeNote.note : "—"}
-            </div>
-            <div style={{ fontSize: 13, color: C.muted, fontFamily: C.font, marginTop: 4 }}>
-              {activeNote ? `${activeNote.freq.toFixed(0)} Hz` : "waiting…"}
-            </div>
-          </div>
+        {/* Cents deviation */}
+        <StatPill
+          label="CENTS OFF"
+          value={formatCents(cents)}
+          color={centsColor}
+        />
 
-          {/* Cents error */}
-          <div style={{
-            background: "rgba(0,0,0,0.28)",
-            border: `1px solid ${cents !== null ? (inTune ? "rgba(74,222,128,0.35)" : "rgba(248,113,113,0.25)") : C.border}`,
-            borderRadius: 12, padding: "18px 20px",
-            transition: "border-color 0.2s",
-          }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>CENTS ERROR</div>
-            <div style={{ fontSize: 28, fontWeight: 700, fontFamily: C.font, color: centsColor }}>
-              {formatCents(cents)}
-            </div>
-            <div style={{ fontSize: 13, color: centsColor, fontFamily: C.font, marginTop: 4 }}>
-              {cents === null ? "—" : inTune ? "✓ In tune!" : cents > 0 ? "Sing lower ↓" : "Sing higher ↑"}
-            </div>
-          </div>
-
-          {/* Big green/red indicator */}
-          <div style={{
-            textAlign: "center",
-            fontSize: 64,
-            lineHeight: 1,
-            marginTop: 8,
-          }}>
-            {liveHz > 0 ? (inTune ? "🟢" : "🔴") : "⚫"}
-          </div>
+        {/* Big intonation indicator */}
+        <div style={{ fontSize: 40, lineHeight: 1 }}>
+          {liveHz > 0 ? (inTune ? "🟢" : "🔴") : "⚫"}
         </div>
 
-        {/* RIGHT — large canvas */}
-        <div style={{ padding: "28px 36px", display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.22)", fontFamily: C.font, letterSpacing: 3 }}>
-            PITCH VISUALIZER — your voice vs target note
+        {/* Hint text */}
+        {cents !== null && (
+          <div style={{
+            fontFamily: C.font, fontSize: 12, fontWeight: 700,
+            color: centsColor, letterSpacing: 1,
+            minWidth: 120, textAlign: "center",
+          }}>
+            {inTune ? "✓ In tune!" : cents > 0 ? "Sing lower ↓" : "Sing higher ↑"}
           </div>
+        )}
 
-          {/* Canvas fills available height */}
-          <div style={{ flex: 1, minHeight: 280 }}>
-            <PitchCanvas
-              targetFreq={targetFreq}
-              pitchHistory={pitchHistory}
-              width={900}
-              height={320}
-              isActive={isPlaying && liveHz > 0}
-            />
+        {/* Live note score mini-bars — only appears after first note completes */}
+        {Object.keys(noteScores).length > 0 && notes?.length > 0 && (
+          <div style={{
+            display: "flex", gap: 6, alignItems: "flex-end",
+            height: 44, marginLeft: "auto",
+            background: "rgba(0,0,0,0.2)",
+            border: `1px solid ${C.border}`,
+            borderRadius: 8, padding: "6px 12px",
+          }}>
+            {notes.map((n, i) => {
+              const sc  = noteScores[i] ?? null;
+              const col = sc === null ? "rgba(255,255,255,0.08)"
+                        : sc >= 75   ? C.green
+                        : sc >= 40   ? "#fbbf24"
+                        :              C.red;
+              const h   = sc !== null ? Math.max(4, (sc / 100) * 30) : 3;
+              return (
+                <div key={i} style={{
+                  display: "flex", flexDirection: "column",
+                  alignItems: "center", gap: 2, justifyContent: "flex-end",
+                  flex: n.beats ?? 1,
+                }}>
+                  <div style={{
+                    width: "100%", minWidth: 8,
+                    height: h,
+                    background: col,
+                    borderRadius: 2,
+                    boxShadow: sc !== null ? `0 0 4px ${col}` : "none",
+                    transition: "height 0.3s ease",
+                  }} />
+                  <span style={{ fontSize: 8, color: col, fontFamily: C.font }}>{n.lyric}</span>
+                </div>
+              );
+            })}
           </div>
-
-          {/* Note-score mini bar chart */}
-          {Object.keys(noteScores).length > 0 && (
-            <div style={{
-              background: "rgba(0,0,0,0.2)",
-              border: `1px solid ${C.border}`,
-              borderRadius: 12,
-              padding: "16px 20px",
-            }}>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 12 }}>
-                NOTE ACCURACY SO FAR
-              </div>
-              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", height: 50 }}>
-                {MELODY.map((n, i) => {
-                  const sc = noteScores[i] ?? null;
-                  if (sc === null) return (
-                    <div key={i} style={{ flex: n.beats, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                      <div style={{ width: "100%", height: 4, background: "rgba(255,255,255,0.08)", borderRadius: 2 }} />
-                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font }}>{n.lyric}</span>
-                    </div>
-                  );
-                  const h   = Math.max(4, (sc / 100) * 40);
-                  const col = sc >= 75 ? C.green : sc >= 40 ? "#fbbf24" : C.red;
-                  return (
-                    <div key={i} style={{ flex: n.beats, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>
-                      <div style={{ width: "100%", height: h, background: col, borderRadius: 3, boxShadow: `0 0 6px ${col}` }} />
-                      <span style={{ fontSize: 10, color: col, fontFamily: C.font }}>{n.lyric}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

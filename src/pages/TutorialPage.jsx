@@ -6,10 +6,9 @@
 
 import { useState, useEffect } from "react";
 import { useAudio }            from "../context/AudioContext.jsx";
-import { MELODY }              from "../audio/melody.js";
-import { previewNote }         from "../audio/scheduler.js";
 import { getCentsError, freqToNoteName, formatCents, tuningHint } from "../utils/musicMath.js";
 import PitchCanvas             from "../components/PitchCanvas.jsx";
+import MelodyContourMap        from "../components/MelodyContourMap.jsx";
 
 const C = {
   border:  "rgba(255,255,255,0.08)",
@@ -42,14 +41,14 @@ const BTN = (variant = "ghost") => ({
 export default function TutorialPage({ onBack, onGoPlay }) {
   const {
     isListening, liveHz, pitchHistory,
-    micError, audioCtxRef,
-    startTutorialListening, stopSession,
+    micError, notes, noteScores,
+    startTutorialListening, stopSession, playPreviewNote,
   } = useAudio();
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [started,     setStarted]     = useState(false);
 
-  const note     = MELODY[selectedIdx];
+  const note = notes?.[selectedIdx] ?? notes?.[0] ?? {};
   const cents    = getCentsError(liveHz, note.freq);
   const inTune   = cents !== null && Math.abs(cents) < 50;
   const hasPitch = liveHz > 0;
@@ -61,10 +60,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
     return () => { live = false; stopSession(); };
   }, []); // eslint-disable-line
 
-  const doHearIt = () => {
-    const ctx = audioCtxRef.current;
-    if (ctx) previewNote(ctx, note.freq, note.beats);
-  };
+  const doHearIt = () => { if (note && playPreviewNote) playPreviewNote(note); };
 
   // Colour for inTune state
   const feedbackColor = hasPitch ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.15)";
@@ -101,7 +97,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
             SELECT A WORD
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {MELODY.map((n, i) => (
+            {(notes || []).map((n, i) => (
               <div
                 key={i}
                 onClick={() => setSelectedIdx(i)}
@@ -162,7 +158,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8 }}>
             <button style={BTN()} onClick={() => setSelectedIdx(Math.max(0, selectedIdx - 1))}>← Prev</button>
-            <button style={BTN()} onClick={() => setSelectedIdx(Math.min(MELODY.length - 1, selectedIdx + 1))}>Next →</button>
+            <button style={BTN()} onClick={() => setSelectedIdx(Math.min((notes?.length ?? 1) - 1, selectedIdx + 1))}>Next →</button>
           </div>
           <button style={BTN("green")} onClick={() => { stopSession(); onGoPlay(); }}>
             🎤 Start Singing!
@@ -240,33 +236,70 @@ export default function TutorialPage({ onBack, onGoPlay }) {
           </div>
         </div>
 
-        {/* Canvas — large, fills remaining space */}
-        <div style={{ flex: 1, minHeight: 220 }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 10 }}>
-            PITCH VISUALIZER — match your voice to the green line
+        {/* ── MELODY CONTOUR MAP — full melody overview ────── */}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3 }}>
+              FULL MELODY SHAPE — all notes, time-proportional
+            </div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.18)", fontFamily: C.font }}>
+              gold = selected note
+            </div>
+          </div>
+          <MelodyContourMap
+            notes={notes}
+            selectedIndex={selectedIdx}
+            liveHz={liveHz}
+            noteScores={{}}
+            height={220}
+          />
+          {/* Contour legend */}
+          <div style={{ display: "flex", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
+            {[
+              { color: "rgba(250,204,21,0.9)", label: "Selected note" },
+              { color: "#93c5fd",              label: "Other notes" },
+              { color: "#4ade80",              label: "YOU — in tune" },
+              { color: "#f87171",              label: "YOU — off pitch" },
+            ].map((item, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 9, height: 9, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: C.muted, fontFamily: C.font }}>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── LIVE PITCH TRAIL — real-time voice tracking ────── */}
+        <div style={{ flex: 1, minHeight: 160 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3 }}>
+              LIVE PITCH TRAIL — match your voice to the green line
+            </div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.18)", fontFamily: C.font }}>
+              target: {note.note} ({note.freq.toFixed(0)} Hz)
+            </div>
           </div>
           <PitchCanvas
             targetFreq={note.freq}
             pitchHistory={pitchHistory}
             width={900}
-            height={260}
+            height={160}
             isActive={hasPitch}
           />
-        </div>
-
-        {/* Cents guide legend */}
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-          {[
-            { color: C.green,               label: "In tune (within ±50 cents)" },
-            { color: "#fbbf24",             label: "Close (±50–100 cents)" },
-            { color: C.red,                 label: "Off pitch (>100 cents)" },
-            { color: "rgba(74,222,128,0.4)", label: "Green band = target zone" },
-          ].map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: item.color }} />
-              <span style={{ fontSize: 11, color: C.muted, fontFamily: C.font }}>{item.label}</span>
-            </div>
-          ))}
+          {/* Trail legend */}
+          <div style={{ display: "flex", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
+            {[
+              { color: "#4ade80",              label: "In tune (±50 cents)" },
+              { color: "#fbbf24",              label: "Close (±100 cents)" },
+              { color: "#f87171",              label: "Off pitch" },
+              { color: "rgba(74,222,128,0.35)", label: "Green band = target zone" },
+            ].map((item, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 9, height: 9, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: C.muted, fontFamily: C.font }}>{item.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
