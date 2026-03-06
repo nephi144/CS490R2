@@ -78,6 +78,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [started,     setStarted]     = useState(false);
+  const [previewProgress, setPreviewProgress] = useState(0);
 
   // Loading guard — notes load async
   if (!notes || notes.length === 0) {
@@ -110,15 +111,31 @@ export default function TutorialPage({ onBack, onGoPlay }) {
   // click handler — Chrome only grants AudioContext resume during
   // an active user gesture. Any async gap before Tone.start() can
   // leave Tone's AudioContext suspended with no error or warning.
-  const doHearIt = async () => {
-    if (!note) return;
-    try {
-      await Tone.start();        // unlock Tone's AudioContext NOW, in this gesture
-      await previewNote(note);   // plays the note via Tone.Synth
-    } catch (err) {
-      console.error("[Hear It] previewNote failed:", err);
+const doHearIt = async () => {
+  if (!note) return;
+
+  await Tone.start();
+
+  const duration = 1000; // 1 second preview
+  const start = performance.now();
+
+  previewNote(note);
+
+  setPreviewProgress(0);
+
+  const animate = () => {
+    const elapsed = performance.now() - start;
+    const progress = Math.min(elapsed / duration, 1);
+
+    setPreviewProgress(progress);
+
+    if (progress < 1) {
+      requestAnimationFrame(animate);
     }
   };
+
+  requestAnimationFrame(animate);
+};
 
   const feedbackColor = hasPitch
     ? (inTune ? C.green : C.red)
@@ -307,6 +324,8 @@ export default function TutorialPage({ onBack, onGoPlay }) {
             elapsedSec={0}
             isPlaying={false}
             height={420}
+            previewProgress={previewProgress}
+
           />
         </div>
 

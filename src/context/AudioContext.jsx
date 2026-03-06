@@ -3,7 +3,7 @@
 // Shared audio state accessible by all pages and components.
 // ─────────────────────────────────────────────────────────────
 
-import { createContext, useContext, useRef, useState, useCallback } from "react";
+import { createContext, useContext, useRef, useState, useCallback, useMemo} from "react";
 import { startPitchLoop, stopPitchLoop } from "../audio/pitchEngine.js";
 import { scheduleMelody } from "../audio/scheduler.js";
 import { MELODY, TOTAL_MS } from "../audio/melody";
@@ -14,6 +14,7 @@ import {
   calculateFinalScore
 } from "../utils/musicMath.js";
   import * as Tone from "tone";
+  
 
 
 const AudioCtx = createContext(null);
@@ -41,7 +42,14 @@ export function AudioProvider({ children }) {
   const [pitchHistory, setPitchHistory] = useState([]);
 
   // ── Expose melody to UI ──
-  const notes = MELODY;
+  const notes = useMemo(() => {
+  return MELODY.map((n) => ({
+    ...n,
+    time: n.startMs / 1000,                         // convert ms → sec
+    duration: (n.endMs - n.startMs) / 1000,         // convert ms → sec
+  }));
+}, []);
+  
 
   // ─────────────────────────────────────
   // 🎤 MICROPHONE SETUP

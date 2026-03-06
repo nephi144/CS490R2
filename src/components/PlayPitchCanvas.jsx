@@ -48,6 +48,7 @@ export default function PlayPitchCanvas({
   elapsedSec,
   height = 380,       // increased default
   isPlaying = false,
+  previewProgress = 0, 
 }) {
   const canvasRef  = useRef(null);
   const wrapRef    = useRef(null);
@@ -138,6 +139,47 @@ export default function PlayPitchCanvas({
         ctx.moveTo(x1 + 3, y);
         ctx.lineTo(x2 - 3, y);
         ctx.stroke();
+// 🔥 Animated progress fill (Tutorial + Singing)
+if (i === activeNoteIndex) {
+
+  let progress = 0;
+
+  if (isPlaying) {
+    // Singing mode (real-time fill)
+    const noteStart = n.time;
+    const noteEnd   = n.time + n.duration;
+    const noteLen   = noteEnd - noteStart;
+
+    if (elapsedSec >= noteStart) {
+      progress = Math.min(
+        (elapsedSec - noteStart) / noteLen,
+        1
+      );
+    }
+
+  } else {
+    // Tutorial preview mode
+    progress = previewProgress;
+  }
+
+  if (progress > 0) {
+    const progressX = x1 + (x2 - x1) * progress;
+
+    ctx.beginPath();
+    ctx.lineCap = "round";
+    ctx.lineWidth = 6;
+
+    ctx.strokeStyle = "#facc15";   // gold progress
+    ctx.shadowColor = "#facc15";
+    ctx.shadowBlur = 18;
+
+    ctx.moveTo(x1 + 3, y);
+    ctx.lineTo(progressX - 3, y);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+  }
+}
 
         // Glow on active note
         if (isActive) {
@@ -327,6 +369,7 @@ export default function PlayPitchCanvas({
 
   // FIX 1: canvasW in dependency array — resize now triggers full redraw
   }, [notes, activeNoteIndex, pitchHistory, elapsedSec, isPlaying,
+    previewProgress,
       freqMin, freqMax, totalDur, height, canvasW]);
 
   // FIX 1: ResizeObserver updates React state (triggers re-render+redraw)
