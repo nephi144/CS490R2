@@ -262,8 +262,15 @@ if (i === activeNoteIndex) {
     // ── 5. GREEN/RED LIVE PITCH TRAIL ─────────────────────────
     const validPoints = (pitchHistory || []).filter(p => p.hz > 0);
     if (validPoints.length > 1) {
-      const elapsedX  = Math.min(toX(Math.max(elapsedSec, 0.01)), W - PAD_RIGHT);
-      const lastHz    = validPoints[validPoints.length - 1].hz;
+let elapsedX;
+
+if (isPlaying && elapsedSec > 0) {
+  // Normal singing mode
+  elapsedX = Math.min(toX(elapsedSec), W - PAD_RIGHT);
+} else {
+  // Tutorial mode OR not started yet
+  elapsedX = W - PAD_RIGHT;
+}      const lastHz    = validPoints[validPoints.length - 1].hz;
       const targetHz  = activeNoteIndex >= 0 ? notes?.[activeNoteIndex]?.freq : null;
       const centsOff  = targetHz ? Math.abs(getCentsError(lastHz, targetHz) ?? 999) : 999;
       const inTune    = centsOff < 50;

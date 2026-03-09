@@ -159,6 +159,7 @@ export function AudioProvider({ children }) {
     timersRef.current = timers;
 
     startPitchLoop(ctx, analyserRef.current, (hz, clarity) => {
+      console.log("hz:", hz);
       setLiveHz(hz);
       setLiveClarity(clarity);
 

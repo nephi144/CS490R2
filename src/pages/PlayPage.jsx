@@ -83,13 +83,17 @@ function StatPill({ label, value, color }) {
 
 // ── Main ──────────────────────────────────────────────────────
 export default function PlayPage({ onBack, onComplete }) {
+  
   const {
     isListening, isPlaying,
-    liveHz, activeNote, elapsedSec,
+    liveHz, activeNote, elapsedMs,
     notes, noteScores, finalScore,
     pitchHistory, micError,
     startSession, stopSession,
   } = useAudio();
+const elapsedSec = elapsedMs / 1000;
+console.log("elapsedSec:", elapsedSec);
+console.log("pitchHistory length:", pitchHistory?.length);
 
   const [countdown,   setCountdown]   = useState(null);
   const [sessionDone, setSessionDone] = useState(false);
@@ -225,9 +229,10 @@ export default function PlayPage({ onBack, onComplete }) {
           notes={notes}
           activeNoteIndex={activeNoteIndex}
           pitchHistory={pitchHistory}
-          elapsedSec={elapsedSec}
+          const elapsedSec={elapsedMs / 1000 }
           isPlaying={isPlaying}
           height={360}
+          
         />
       </div>
 
