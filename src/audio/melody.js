@@ -21,6 +21,54 @@ export const RAW_MELODY = [
   { lyric: "sent",  note: "B4", beats: 1 },
   { lyric: "me",    note: "A4", beats: 1 },
   { lyric: "here,", note: "G4", beats: 2 },
+  { lyric: "Has",    note: "G4", beats: 1 },
+  { lyric: "giv-",   note: "G4", beats: 1 },
+  { lyric: "-en",    note: "E4", beats: 1 },
+  { lyric: "me",     note: "E4", beats: 1 },
+  { lyric: "an",     note: "G4", beats: 1 },
+
+  { lyric: "earth-", note: "G4", beats: 1 },
+  { lyric: "-ly",    note: "F4", beats: 1 },
+  { lyric: "home",   note: "F4", beats: 1.5 },
+  { lyric: "With",   note: "E4", beats: 0.5 },
+
+  { lyric: "par-",   note: "E4", beats: 1 },
+  { lyric: "-ents",  note: "D4", beats: 1 },
+  { lyric: "kind",   note: "B4", beats: 1 },
+  { lyric: "and",    note: "A4", beats: 1 },
+  { lyric: "dear.",  note: "G4", beats: 3 },
+
+  { lyric: "Lead",   note: "E4", beats: 1 },
+  { lyric: "me,",    note: "G4", beats: 1 },
+  { lyric: "guide",  note: "E4", beats: 1 },
+  { lyric: "me,",    note: "G4", beats: 1 },
+
+  { lyric: "walk",   note: "G4", beats: 1 },
+  { lyric: "be-",    note: "F4", beats: 1 },
+  { lyric: "side",   note: "D4", beats: 1 },
+  { lyric: "me,",    note: "F4", beats: 1 },
+
+  { lyric: "Help",   note: "B4", beats: 1 },
+  { lyric: "me",     note: "B4", beats: 1 },
+  { lyric: "find",   note: "A4", beats: 1.5 },
+  { lyric: "the",    note: "A4", beats: 0.5 },
+  { lyric: "way.",   note: "G4", beats: 3 },
+
+  { lyric: "Teach",  note: "E4", beats: 1 },
+  { lyric: "me",     note: "G4", beats: 1 },
+  { lyric: "all",    note: "E4", beats: 1 },
+  { lyric: "that",   note: "G4", beats: 1 },
+
+  { lyric: "I",      note: "C5", beats: 1 },
+  { lyric: "must",   note: "A4", beats: 1 },
+  { lyric: "do",     note: "F4", beats: 1.5 },
+  { lyric: "To",     note: "D4", beats: 0.5 },
+
+  { lyric: "live",   note: "F4", beats: 1 },
+  { lyric: "with",   note: "F4", beats: 1 },
+  { lyric: "him",    note: "E4", beats: 1 },
+  { lyric: "some-",  note: "D4", beats: 1 },
+  { lyric: "day.",   note: "C4", beats: 3 },
 ];
 
 // Build cumulative startMs / endMs for each note

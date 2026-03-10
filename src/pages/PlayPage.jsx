@@ -213,26 +213,31 @@ console.log("pitchHistory length:", pitchHistory?.length);
         </div>
       )}
 
-      {/* ── 3. PITCH CANVAS — top ~60% ────────────────────────
-            PlayPitchCanvas shows:
-              - Full blue melody line (all notes, time-proportional)
-              - Live green pitch trail overlaid
-            No scrolling. Entire phrase visible at once.           */}
+      {/* ── 3. KARAOKE LYRICS + PITCH CANVAS ───────────────────── */}
       <div style={{ flex: "0 0 62%", padding: "10px 20px 4px", minHeight: 0 }}>
+        <KaraokeLyrics
+          melody={notes}
+          activeNoteIndex={activeNoteIndex}
+        />
+
         <div style={{
-          fontSize: 9, color: "rgba(255,255,255,0.2)", fontFamily: C.font,
-          letterSpacing: 3, marginBottom: 6,
+          fontSize: 9,
+          color: "rgba(255,255,255,0.2)",
+          fontFamily: C.font,
+          letterSpacing: 3,
+          marginTop: 10,
+          marginBottom: 6,
         }}>
           PITCH VISUALIZER — blue: target melody · green: your voice
         </div>
+
         <PlayPitchCanvas
           notes={notes}
           activeNoteIndex={activeNoteIndex}
           pitchHistory={pitchHistory}
-          const elapsedSec={elapsedMs / 1000 }
+          elapsedSec={elapsedMs / 1000}
           isPlaying={isPlaying}
           height={360}
-          
         />
       </div>
 
