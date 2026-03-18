@@ -1,90 +1,148 @@
-// ─────────────────────────────────────────────────────────────
-// "I Am a Child of God" — Key of F Major, 3/4 time
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────
+// melody.js (FINAL SIMPLE VERSION)
+// ─────────────────────────────────────────
 
-import { noteToFreq } from "../utils/pitchUtils";
-export const BPM = 88;
-export const BEAT_MS = (60 / BPM) * 1000;
-
-export const RAW_MELODY = [
-  { lyric: "I",     note: "E4", beats: 1 },
-  { lyric: "am",    note: "E4", beats: 1 },
-  { lyric: "a",     note: "E4", beats: 1 },
-  { lyric: "child", note: "F4", beats: 1 },
-  { lyric: "of",    note: "G4", beats: 2 },
-  { lyric: "God",   note: "E4", beats: 3 },
-  
-
-  { lyric: "And",   note: "G4", beats: 1 },
-  { lyric: "he",    note: "C5", beats: 1 },
-  { lyric: "has",   note: "C5", beats: 1 },
-  { lyric: "sent",  note: "B4", beats: 1 },
-  { lyric: "me",    note: "A4", beats: 1 },
-  { lyric: "here,", note: "G4", beats: 2 },
-  { lyric: "Has",    note: "G4", beats: 1 },
-  { lyric: "giv-",   note: "G4", beats: 1 },
-  { lyric: "-en",    note: "E4", beats: 1 },
-  { lyric: "me",     note: "E4", beats: 1 },
-  { lyric: "an",     note: "G4", beats: 1 },
-
-  { lyric: "earth-", note: "G4", beats: 1 },
-  { lyric: "-ly",    note: "F4", beats: 1 },
-  { lyric: "home",   note: "F4", beats: 1.5 },
-  { lyric: "With",   note: "E4", beats: 0.5 },
-
-  { lyric: "par-",   note: "E4", beats: 1 },
-  { lyric: "-ents",  note: "D4", beats: 1 },
-  { lyric: "kind",   note: "B4", beats: 1 },
-  { lyric: "and",    note: "A4", beats: 1 },
-  { lyric: "dear.",  note: "G4", beats: 3 },
-
-  { lyric: "Lead",   note: "E4", beats: 1 },
-  { lyric: "me,",    note: "G4", beats: 1 },
-  { lyric: "guide",  note: "E4", beats: 1 },
-  { lyric: "me,",    note: "G4", beats: 1 },
-
-  { lyric: "walk",   note: "G4", beats: 1 },
-  { lyric: "be-",    note: "F4", beats: 1 },
-  { lyric: "side",   note: "D4", beats: 1 },
-  { lyric: "me,",    note: "F4", beats: 1 },
-
-  { lyric: "Help",   note: "B4", beats: 1 },
-  { lyric: "me",     note: "B4", beats: 1 },
-  { lyric: "find",   note: "A4", beats: 1.5 },
-  { lyric: "the",    note: "A4", beats: 0.5 },
-  { lyric: "way.",   note: "G4", beats: 3 },
-
-  { lyric: "Teach",  note: "E4", beats: 1 },
-  { lyric: "me",     note: "G4", beats: 1 },
-  { lyric: "all",    note: "E4", beats: 1 },
-  { lyric: "that",   note: "G4", beats: 1 },
-
-  { lyric: "I",      note: "C5", beats: 1 },
-  { lyric: "must",   note: "A4", beats: 1 },
-  { lyric: "do",     note: "F4", beats: 1.5 },
-  { lyric: "To",     note: "D4", beats: 0.5 },
-
-  { lyric: "live",   note: "F4", beats: 1 },
-  { lyric: "with",   note: "F4", beats: 1 },
-  { lyric: "him",    note: "E4", beats: 1 },
-  { lyric: "some-",  note: "D4", beats: 1 },
-  { lyric: "day.",   note: "C4", beats: 3 },
+// 🎵 Bass (already done)
+export const BASS = [
+  { freq: 130.81, duration: 2 },
+  { freq: 130.81, duration: 2 },
+  { freq: 130.81, duration: 3 },
+  { freq: 164.81, duration: 1 },
+  { freq: 174.61, duration: 2 },
+  { freq: 220.00, duration: 1 },
+  { freq: 246.94, duration: 1 },
+  { freq: 261.63, duration: 3 },
+  { freq: 110.00, duration: 2 },
+  { freq: 110.00, duration: 2 },
+  { freq: 146.83, duration: 2 },
+  { freq: 146.83, duration: 2 },
+  { freq: 196.00, duration: 3 },
+  { freq: 130.81, duration: 2 },
+  { freq: 130.81, duration: 2 },
+  { freq: 196.00, duration: 2 },
+  { freq: 98.00,  duration: 2 },
+  { freq: 130.81, duration: 3 },
 ];
 
-// Build cumulative startMs / endMs for each note
-let cursor = 0;
+// 🎵 Alto (converted from your XML)
+export const ALTO = [
+  { freq: 261.63, duration: 1 }, // C4
+  { freq: 261.63, duration: 0.5 },
+  { freq: 261.63, duration: 0.5 },
+  { freq: 261.63, duration: 1 },
+  { freq: 293.66, duration: 1 },
 
-export const MELODY = RAW_MELODY.map((n) => {
-  const startMs = cursor;
-  const duration = n.beats * BEAT_MS;
-  cursor += duration;
+  { freq: 261.63, duration: 3 },
+  { freq: 392.00, duration: 1 },
 
-  return {
-    ...n,
-    freq: noteToFreq(n.note), // ✅ Automatically calculated
-    startMs,
-    endMs: cursor,
-  };
-});
+  { freq: 440.00, duration: 1.5 },
+  { freq: 440.00, duration: 0.5 },
+  { freq: 392.00, duration: 1 },
+  { freq: 349.23, duration: 1 },
 
-export const TOTAL_MS = cursor;
+  { freq: 329.63, duration: 3 },
+  { freq: 392.00, duration: 1 },
+
+  { freq: 277.18, duration: 2 }, // C#4
+  { freq: 277.18, duration: 2 },
+
+  { freq: 329.63, duration: 1 },
+  { freq: 293.66, duration: 1 },
+  { freq: 293.66, duration: 1.5 },
+  { freq: 329.63, duration: 0.5 },
+
+  { freq: 261.63, duration: 2 },
+  { freq: 369.99, duration: 2 }, // F#4
+
+  { freq: 293.66, duration: 3 },
+
+  { freq: 261.63, duration: 1 },
+  { freq: 392.00, duration: 1 },
+  { freq: 261.63, duration: 1 },
+  { freq: 392.00, duration: 1 },
+
+  { freq: 329.63, duration: 1 },
+  { freq: 293.66, duration: 1 },
+  { freq: 293.66, duration: 1 },
+  { freq: 349.23, duration: 1 },
+
+  { freq: 349.23, duration: 1 },
+  { freq: 349.23, duration: 1 },
+  { freq: 349.23, duration: 1.5 },
+  { freq: 349.23, duration: 0.5 },
+
+  { freq: 329.63, duration: 3 },
+
+  { freq: 261.63, duration: 1 },
+  { freq: 392.00, duration: 1 },
+  { freq: 261.63, duration: 1 },
+  { freq: 392.00, duration: 1 },
+
+  { freq: 349.23, duration: 1 },
+  { freq: 440.00, duration: 1 },
+  { freq: 349.23, duration: 1.5 },
+  { freq: 293.66, duration: 0.5 },
+
+  { freq: 246.94, duration: 1 },
+  { freq: 246.94, duration: 1 },
+  { freq: 246.94, duration: 2 },
+
+  { freq: 261.63, duration: 3 },
+];
+
+// 🎵 Tenor (converted from your XML)
+export const TENOR = [
+  { freq: 196.00, duration: 2 }, // G3
+  { freq: 220.00, duration: 1 }, // A3
+  { freq: 246.94, duration: 1 }, // B3
+
+  { freq: 196.00, duration: 3 },
+  { freq: 261.63, duration: 1 },
+
+  { freq: 261.63, duration: 2 },
+  { freq: 220.00, duration: 1 },
+  { freq: 246.94, duration: 1 },
+
+  { freq: 261.63, duration: 3 },
+
+  { freq: 164.81, duration: 2 }, // E3
+  { freq: 220.00, duration: 2 },
+
+  { freq: 220.00, duration: 2 },
+  { freq: 220.00, duration: 1.5 },
+  { freq: 196.00, duration: 0.5 },
+
+  { freq: 185.00, duration: 2 }, // F#3
+  { freq: 261.63, duration: 2 },
+
+  { freq: 246.94, duration: 3 },
+
+  { freq: 196.00, duration: 2 },
+  { freq: 196.00, duration: 2 },
+
+  { freq: 246.94, duration: 2 },
+  { freq: 246.94, duration: 2 },
+
+  { freq: 146.83, duration: 2 },
+  { freq: 196.00, duration: 2 },
+
+  { freq: 196.00, duration: 3 },
+
+  { freq: 196.00, duration: 2 },
+  { freq: 233.08, duration: 2 }, // Bb3
+
+  { freq: 220.00, duration: 3 },
+
+  { freq: 196.00, duration: 2 },
+  { freq: 196.00, duration: 1 },
+  { freq: 174.61, duration: 1 },
+
+  { freq: 164.81, duration: 3 },
+];
+
+// 🎯 Voice selector
+export const VOICES = {
+  bass: BASS,
+  alto: ALTO,
+  tenor: TENOR,
+};

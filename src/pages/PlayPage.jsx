@@ -27,6 +27,8 @@ import { getCentsError,
          formatCents }       from "../utils/musicMath.js";
 import PlayPitchCanvas       from "../components/PlayPitchCanvas.jsx";
 import KaraokeLyrics         from "../components/KaraokeLyrics.jsx";
+import { VOICES } from "../audio/melody";
+
 
 const C = {
   border: "rgba(255,255,255,0.08)",
@@ -92,8 +94,7 @@ export default function PlayPage({ onBack, onComplete }) {
     startSession, stopSession,
   } = useAudio();
 const elapsedSec = elapsedMs / 1000;
-console.log("elapsedSec:", elapsedSec);
-console.log("pitchHistory length:", pitchHistory?.length);
+
 
   const [countdown,   setCountdown]   = useState(null);
   const [sessionDone, setSessionDone] = useState(false);
@@ -129,21 +130,31 @@ console.log("pitchHistory length:", pitchHistory?.length);
   }, []); // eslint-disable-line
 
   // ── Derived values ────────────────────────────────────────
-  const totalDur       = notes?.length
-    ? notes[notes.length - 1].time + notes[notes.length - 1].duration
-    : 1;
-  const progressPct    = totalDur > 0
-    ? Math.min(100, (elapsedSec / totalDur) * 100)
-    : 0;
+const totalDur = notes?.length
+  ? notes[notes.length - 1].endMs / 1000
+  : 1;
 
-  const activeNoteIndex = notes?.findIndex(n =>
-    n.lyric === activeNote?.lyric && n.note === activeNote?.note
-  ) ?? -1;
+const progressPct = totalDur > 0
+  ? Math.min(100, (elapsedSec / totalDur) * 100)
+  : 0;
+
+let activeNoteIndex = -1;
+
+if (notes?.length) {
+  activeNoteIndex = notes.findIndex(
+    (n) => elapsedMs >= n.startMs && elapsedMs < n.endMs
+  );
+
+  if (activeNoteIndex === -1 && elapsedMs >= notes[notes.length - 1].endMs) {
+    activeNoteIndex = notes.length - 1;
+  }
+}
 
   const targetFreq  = activeNote?.freq ?? null;
   const cents       = getCentsError(liveHz, targetFreq);
   const inTune      = cents !== null && Math.abs(cents) < 50;
   const centsColor  = cents !== null ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.35)";
+  
 
   // ─────────────────────────────────────────────────────────
   return (
@@ -154,6 +165,8 @@ console.log("pitchHistory length:", pitchHistory?.length);
       overflow:      "hidden",
     }}>
       {countdown !== null && <CountdownOverlay count={countdown} />}
+
+  
 
       {/* ── 1. TOP STATUS BAR ─── unchanged layout ─────────── */}
       <div style={{
@@ -213,52 +226,51 @@ console.log("pitchHistory length:", pitchHistory?.length);
         </div>
       )}
 
-      {/* ── 3. KARAOKE LYRICS + PITCH CANVAS ───────────────────── */}
-      <div style={{ flex: "0 0 62%", padding: "10px 20px 4px", minHeight: 0 }}>
-        <KaraokeLyrics
-          melody={notes}
-          activeNoteIndex={activeNoteIndex}
-        />
+{/* ── 3. PITCH CANVAS ───────────────────── */}
+<div style={{ flex: "0 0 62%", padding: "10px 20px 4px", minHeight: 0 }}>
+  <div style={{
+    fontSize: 9,
+    color: "rgba(255,255,255,0.2)",
+    fontFamily: C.font,
+    letterSpacing: 3,
+    marginTop: 10,
+    marginBottom: 6,
+  }}>
+    PITCH VISUALIZER — blue: target melody · green: your voice
+  </div>
 
-        <div style={{
-          fontSize: 9,
-          color: "rgba(255,255,255,0.2)",
-          fontFamily: C.font,
-          letterSpacing: 3,
-          marginTop: 10,
-          marginBottom: 6,
-        }}>
-          PITCH VISUALIZER — blue: target melody · green: your voice
-        </div>
+  <PlayPitchCanvas
+    notes={notes}
+    activeNoteIndex={activeNoteIndex}
+    pitchHistory={pitchHistory}
+    elapsedSec={elapsedMs / 1000}
+    isPlaying={isPlaying}
+    height={360}
+  />
+</div>
 
-        <PlayPitchCanvas
-          notes={notes}
-          activeNoteIndex={activeNoteIndex}
-          pitchHistory={pitchHistory}
-          elapsedSec={elapsedMs / 1000}
-          isPlaying={isPlaying}
-          height={360}
-        />
-      </div>
+{/* ── 4. KARAOKE LYRICS — bottom/middle ───────────────────── */}
+<div style={{
+  borderTop: `1px solid rgba(255,255,255,0.06)`,
+  background: "rgba(0,0,0,0.18)",
+  flexShrink: 0,
+  padding: "0 20px",
+}}>
+  <KaraokeLyrics
+    melody={notes}
+    activeNoteIndex={activeNoteIndex}
+  />
+</div>
 
-      {/* ── 4. KARAOKE LYRICS — middle ────────────────────────
-            Pure display — not clickable.
-            Past = dimmed + score colour.
-            Current = large gold + pulsing underline.
-            Future = faded grey.                                   */}
-      <div style={{
-        borderTop:    `1px solid rgba(255,255,255,0.06)`,
-        background:   "rgba(0,0,0,0.18)",
-        flexShrink:   0,
-        padding:      "0 20px",
-      }}>
-        <KaraokeLyrics
-          notes={notes}
-          activeNoteIndex={activeNoteIndex}
-          noteScores={noteScores}
-        />
-      </div>
-
+<select
+  value={voice}
+  onChange={(e) => setVoice(e.target.value)}
+  style={{ marginBottom: 10 }}
+>
+  <option value="bass">Bass</option>
+  <option value="tenor">Tenor</option>
+  <option value="alto">Alto</option>
+</select>
       {/* ── 5. BOTTOM CONTROLS — stat pills + intonation ─────── */}
       <div style={{
         flex:        "1 1 auto",

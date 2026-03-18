@@ -6,7 +6,7 @@
 import { createContext, useContext, useRef, useState, useCallback, useMemo} from "react";
 import { startPitchLoop, stopPitchLoop } from "../audio/pitchEngine.js";
 import { scheduleMelody } from "../audio/scheduler.js";
-import { MELODY, TOTAL_MS } from "../audio/melody";
+import { VOICES, TOTAL_MS } from "../audio/melody";
 import {
   scoreFromCents,
   getCentsError,
