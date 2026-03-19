@@ -29,7 +29,6 @@ import PlayPitchCanvas       from "../components/PlayPitchCanvas.jsx";
 import KaraokeLyrics         from "../components/KaraokeLyrics.jsx";
 import { VOICES } from "../audio/melody";
 
-
 const C = {
   border: "rgba(255,255,255,0.08)",
   muted:  "rgba(255,255,255,0.38)",
@@ -86,13 +85,15 @@ function StatPill({ label, value, color }) {
 // ── Main ──────────────────────────────────────────────────────
 export default function PlayPage({ onBack, onComplete }) {
   
-  const {
-    isListening, isPlaying,
-    liveHz, activeNote, elapsedMs,
-    notes, noteScores, finalScore,
-    pitchHistory, micError,
-    startSession, stopSession,
-  } = useAudio();
+const {
+  voice,        // 🔥 ADD THIS
+  setVoice,     // 🔥 ADD THIS
+  isListening, isPlaying,
+  liveHz, activeNote, elapsedMs,
+  notes, noteScores, finalScore,
+  pitchHistory, micError,
+  startSession, stopSession,
+} = useAudio();
 const elapsedSec = elapsedMs / 1000;
 
 
@@ -185,6 +186,35 @@ if (notes?.length) {
         }}>
           {isPlaying ? "● SINGING" : sessionDone ? "✓ COMPLETE" : "READY"}
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+  <span style={{
+    fontSize: 10,
+    fontFamily: C.font,
+    color: C.muted,
+    letterSpacing: 2
+  }}>
+    VOICE
+  </span>
+
+  <select
+    value={voice}
+    onChange={(e) => setVoice(e.target.value)}
+    style={{
+      padding: "4px 8px",
+      borderRadius: 6,
+      background: "rgba(255,255,255,0.05)",
+      color: "#fff",
+      border: `1px solid ${C.border}`,
+      fontFamily: C.font,
+      fontSize: 11,
+      cursor: "pointer"
+    }}
+  >
+    <option value="bass">Bass</option>
+    <option value="tenor">Tenor</option>
+    <option value="alto">Alto</option>
+  </select>
+</div>
 
         {/* Progress bar */}
         <div style={{ flex: 1, height: 5, background: "rgba(255,255,255,0.06)", borderRadius: 3, overflow: "hidden" }}>
@@ -262,15 +292,7 @@ if (notes?.length) {
   />
 </div>
 
-<select
-  value={voice}
-  onChange={(e) => setVoice(e.target.value)}
-  style={{ marginBottom: 10 }}
->
-  <option value="bass">Bass</option>
-  <option value="tenor">Tenor</option>
-  <option value="alto">Alto</option>
-</select>
+
       {/* ── 5. BOTTOM CONTROLS — stat pills + intonation ─────── */}
       <div style={{
         flex:        "1 1 auto",

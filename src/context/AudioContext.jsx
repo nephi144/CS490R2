@@ -1,35 +1,46 @@
 // ─────────────────────────────────────────────────────────────
-// context/AudioContext.jsx
-// Shared audio state accessible by all pages and components.
+// context/AudioContext.jsx (FINAL — SATB ENABLED)
 // ─────────────────────────────────────────────────────────────
 
-import { createContext, useContext, useRef, useState, useCallback, useMemo} from "react";
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+  useEffect
+} from "react";
+
 import { startPitchLoop, stopPitchLoop } from "../audio/pitchEngine.js";
 import { scheduleMelody } from "../audio/scheduler.js";
 import { VOICES, TOTAL_MS } from "../audio/melody";
+
 import {
   scoreFromCents,
   getCentsError,
   averageScores,
   calculateFinalScore
 } from "../utils/musicMath.js";
-  import * as Tone from "tone";
-  
 
+import * as Tone from "tone";
 
 const AudioCtx = createContext(null);
 
 export function AudioProvider({ children }) {
 
-  // ── Refs (do not trigger re-render) ──
+  // ── Refs ──
   const audioCtxRef  = useRef(null);
   const analyserRef  = useRef(null);
   const streamRef    = useRef(null);
   const timersRef    = useRef([]);
   const frameScores  = useRef({});
   const startTimeRef = useRef(0);
+  const previewSynthRef = useRef(null);
 
   // ── State ──
+  const [voice, setVoice] = useState("bass"); // 🔥 NEW
+
   const [isListening,  setIsListening]  = useState(false);
   const [isPlaying,    setIsPlaying]    = useState(false);
   const [micError,     setMicError]     = useState(null);
@@ -41,18 +52,23 @@ export function AudioProvider({ children }) {
   const [finalScore,   setFinalScore]   = useState(null);
   const [pitchHistory, setPitchHistory] = useState([]);
 
-  // ── Expose melody to UI ──
+  // ─────────────────────────────────────
+  // 🎵 CURRENT MELODY (based on voice)
+  // ─────────────────────────────────────
+  const currentMelody = useMemo(() => {
+    return VOICES[voice] || [];
+  }, [voice]);
+
   const notes = useMemo(() => {
-  return MELODY.map((n) => ({
-    ...n,
-    time: n.startMs / 1000,                         // convert ms → sec
-    duration: (n.endMs - n.startMs) / 1000,         // convert ms → sec
-  }));
-}, []);
-  
+    return currentMelody.map((n) => ({
+      ...n,
+      time: n.startMs / 1000,
+      duration: (n.endMs - n.startMs) / 1000,
+    }));
+  }, [currentMelody]);
 
   // ─────────────────────────────────────
-  // 🎤 MICROPHONE SETUP
+  // 🎤 MICROPHONE
   // ─────────────────────────────────────
   const startMic = useCallback(async () => {
     try {
@@ -115,12 +131,17 @@ export function AudioProvider({ children }) {
   }, []);
 
   // ─────────────────────────────────────
-  // 🎼 FULL SESSION (Play Mode)
+  // 🎼 SESSION (PLAY MODE)
   // ─────────────────────────────────────
   const startSession = useCallback(async () => {
 
+    const melody = VOICES[voice];
+
+    // reset scores
     frameScores.current = {};
-    MELODY.forEach((_, i) => { frameScores.current[i] = []; });
+    melody.forEach((_, i) => {
+      frameScores.current[i] = [];
+    });
 
     setNoteScores({});
     setFinalScore(null);
@@ -145,7 +166,7 @@ export function AudioProvider({ children }) {
       setActiveNote(null);
 
       const computed = {};
-      MELODY.forEach((_, i) => {
+      melody.forEach((_, i) => {
         computed[i] = averageScores(frameScores.current[i] || []);
       });
 
@@ -155,11 +176,17 @@ export function AudioProvider({ children }) {
       stopMic();
     };
 
-    const { timers } = scheduleMelody(ctx, handleNoteStart, handleComplete);
+    // 🔥 PASS MELODY HERE
+    const { timers } = scheduleMelody(
+      ctx,
+      melody,
+      handleNoteStart,
+      handleComplete
+    );
+
     timersRef.current = timers;
 
     startPitchLoop(ctx, analyserRef.current, (hz, clarity) => {
-      console.log("hz:", hz);
       setLiveHz(hz);
       setLiveClarity(clarity);
 
@@ -167,26 +194,32 @@ export function AudioProvider({ children }) {
       setElapsedMs(elapsed);
 
       if (hz > 0) {
-        const noteIdx = MELODY.findIndex(
+        const noteIdx = melody.findIndex(
           (n) => elapsed >= n.startMs && elapsed < n.endMs
         );
 
         if (noteIdx >= 0) {
-          const target = MELODY[noteIdx].freq;
+          const target = melody[noteIdx].freq;
           const cents  = getCentsError(hz, target);
           const sc     = scoreFromCents(cents);
-          if (sc !== null) frameScores.current[noteIdx].push(sc);
+          if (sc !== null) {
+            frameScores.current[noteIdx].push(sc);
+          }
         }
 
-        setPitchHistory((prev) => [...prev.slice(-200), { hz }]);
+        setPitchHistory((prev) => [
+          ...prev.slice(-200),
+          { hz }
+        ]);
       }
     });
 
     return true;
-  }, [startMic, stopMic]);
+
+  }, [voice, startMic, stopMic]);
 
   // ─────────────────────────────────────
-  // 🎵 Tutorial Mode (Mic only)
+  // 🎧 TUTORIAL MODE
   // ─────────────────────────────────────
   const startTutorialListening = useCallback(async () => {
     const ctx = await startMic();
@@ -199,7 +232,10 @@ export function AudioProvider({ children }) {
       setLiveClarity(clarity);
 
       if (hz > 0) {
-        setPitchHistory((prev) => [...prev.slice(-150), { hz }]);
+        setPitchHistory((prev) => [
+          ...prev.slice(-150),
+          { hz }
+        ]);
       }
     });
 
@@ -226,27 +262,35 @@ export function AudioProvider({ children }) {
     setActiveNote(null);
     setElapsedMs(0);
   }, [stopSession]);
-  
 
   // ─────────────────────────────────────
-  // 🔥 PROVIDER
+  // 🔊 PREVIEW NOTE
   // ─────────────────────────────────────
+  const previewNote = useCallback(async (note) => {
+    if (!note) return;
 
-const previewSynthRef = useRef(null);
+    if (!previewSynthRef.current) {
+      previewSynthRef.current = new Tone.Synth().toDestination();
+    }
 
-const previewNote = useCallback(async (note) => {
-  if (!note) return;
+    previewSynthRef.current.triggerAttackRelease(
+      note.note || note.freq,
+      "1n"
+    );
+  }, []);
 
-  if (!previewSynthRef.current) {
-    previewSynthRef.current = new Tone.Synth().toDestination();
-  }
+  // ─────────────────────────────────────
+  // 🔄 RESET WHEN VOICE CHANGES
+  // ─────────────────────────────────────
+  useEffect(() => {
+    stopPitchLoop();
+    setIsPlaying(false);
+    setActiveNote(null);
+  }, [voice]);
 
-  previewSynthRef.current.triggerAttackRelease(
-    note.note || note.freq,
-    "1n"
-  );
-
-}, []);
+  // ─────────────────────────────────────
+  // 🚀 PROVIDER
+  // ─────────────────────────────────────
   return (
     <AudioCtx.Provider
       value={{
@@ -259,7 +303,9 @@ const previewNote = useCallback(async (note) => {
         liveClarity,
         activeNote,
         elapsedMs,
-        notes,            // ← FIXED
+        notes,
+        voice,        // 🔥 NEW
+        setVoice,     // 🔥 NEW
         previewNote,
         noteScores,
         finalScore,
