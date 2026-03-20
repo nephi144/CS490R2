@@ -1,13 +1,14 @@
 // ─────────────────────────────────────────────────────────────
-// scheduler.js (CLEAN + OFFSET SUPPORT + OSCILLATOR TRACKING)
+// scheduler.js — TIME-BASED, voice-agnostic
+// Works with any VOICES[voice] melody array.
 // ─────────────────────────────────────────────────────────────
 
 import { BEAT_MS } from "./melody.js";
 
-/**
- * Play a single synthesized note.
- * CHANGE: returns the oscillator so callers can kill it early.
- */
+// ─────────────────────────────────────────
+// Internal: play one oscillator note
+// Returns the oscillator so callers can kill it early.
+// ─────────────────────────────────────────
 function playNote(audioCtx, freq, startTime, durationSec) {
   const osc  = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
@@ -18,7 +19,7 @@ function playNote(audioCtx, freq, startTime, durationSec) {
   osc.type = "triangle";
   osc.frequency.setValueAtTime(freq, startTime);
 
-  gain.gain.setValueAtTime(0, startTime);
+  gain.gain.setValueAtTime(0,    startTime);
   gain.gain.linearRampToValueAtTime(0.4, startTime + 0.02);
   gain.gain.setValueAtTime(0.35, startTime + durationSec - 0.05);
   gain.gain.linearRampToValueAtTime(0, startTime + durationSec);
@@ -26,14 +27,25 @@ function playNote(audioCtx, freq, startTime, durationSec) {
   osc.start(startTime);
   osc.stop(startTime + durationSec + 0.02);
 
-  return osc; // ADD
+  return osc;
 }
 
-/**
- * 🎼 MAIN SCHEDULER
- * ADD: oscRef — optional ref; all created oscillators are pushed
- *      into oscRef.current so the caller can stop them instantly.
- */
+// ─────────────────────────────────────────
+// 🎼 scheduleMelody
+//
+// Schedules playback for any voice melody array.
+// All timing is derived from note.startMs / note.endMs —
+// NO index-based assumptions.
+//
+// Params:
+//   audioCtx      — Web Audio AudioContext
+//   melody        — VOICES[voice] array (has startMs, endMs, freq)
+//   startOffsetMs — resume/jump offset in ms (default 0)
+//   onNoteStart   — callback(note) when a note becomes active
+//   onComplete    — callback() when the last note finishes
+//   timersRef     — ref({ current: [] }) for setTimeout handles
+//   oscRef        — ref({ current: [] }) for oscillator handles
+// ─────────────────────────────────────────
 export function scheduleMelody({
   audioCtx,
   melody,
@@ -41,75 +53,78 @@ export function scheduleMelody({
   onNoteStart,
   onComplete,
   timersRef,
-  oscRef,        // ADD
+  oscRef,
 }) {
-  if (!audioCtx || !melody) return;
+  if (!audioCtx || !melody?.length) return;
 
-  const playStart = audioCtx.currentTime + 0.1;
-
+  // Clear any previous timers + oscillators
   if (timersRef?.current) {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
   }
-
-  // ADD: reset osc list
   if (oscRef?.current) {
     oscRef.current = [];
   }
 
+  // Small lookahead so the first note isn't clipped
+  const playStart = audioCtx.currentTime + 0.1;
+
   melody.forEach((note) => {
-    const noteStartMs = note.startMs;
-    const noteEndMs   = note.endMs;
+    // Skip notes that have already fully elapsed
+    if (note.endMs <= startOffsetMs) return;
 
-    if (noteEndMs <= startOffsetMs) return;
-
-    const adjustedStartMs = Math.max(noteStartMs, startOffsetMs);
+    // If we're resuming mid-note, play only the remaining tail
+    const adjustedStartMs = Math.max(note.startMs, startOffsetMs);
     const delayMs         = adjustedStartMs - startOffsetMs;
-    const startTime       = playStart + delayMs / 1000;
-    const durationSec     = (noteEndMs - adjustedStartMs) / 1000 * 0.92;
+    const audioStartTime  = playStart + delayMs / 1000;
+    const durationSec     = ((note.endMs - adjustedStartMs) / 1000) * 0.92; // slight duck
 
-    // ADD: store osc
-    const osc = playNote(audioCtx, note.freq, startTime, durationSec);
+    // Schedule Web Audio oscillator
+    const osc = playNote(audioCtx, note.freq, audioStartTime, durationSec);
     if (oscRef?.current) oscRef.current.push(osc);
 
-    const uiDelay = (startTime - audioCtx.currentTime) * 1000;
+    // Schedule UI callback (onNoteStart fires at the NOTE's original startMs,
+    // so the canvas highlights correctly even on mid-note resume)
+    const uiDelayMs = (audioStartTime - audioCtx.currentTime) * 1000;
     const t = setTimeout(() => {
       onNoteStart?.(note);
-    }, Math.max(0, uiDelay));
+    }, Math.max(0, uiDelayMs));
 
     timersRef?.current.push(t);
   });
 
-  const last = melody[melody.length - 1];
-  if (last) {
-    const remainingMs = last.endMs - startOffsetMs;
-    const endDelay =
-      (playStart - audioCtx.currentTime) * 1000 + remainingMs + 200;
+  // ── onComplete fires after the last note ends ──
+  const lastNote    = melody[melody.length - 1];
+  const remainingMs = lastNote.endMs - startOffsetMs;
+  const endDelayMs  = (playStart - audioCtx.currentTime) * 1000 + remainingMs + 200;
 
-    const endTimer = setTimeout(() => {
-      onComplete?.();
-    }, Math.max(0, endDelay));
+  const endTimer = setTimeout(() => {
+    onComplete?.();
+  }, Math.max(0, endDelayMs));
 
-    timersRef?.current.push(endTimer);
-  }
+  timersRef?.current.push(endTimer);
 }
 
-/**
- * NEW: Stop all tracked oscillators immediately (for pause/stop).
- */
+// ─────────────────────────────────────────
+// killAllOscillators
+// Immediately silences every tracked oscillator.
+// Call on pause / stop / voice-change.
+// ─────────────────────────────────────────
 export function killAllOscillators(oscRef, audioCtx) {
   if (!oscRef?.current) return;
   const now = audioCtx?.currentTime ?? 0;
   oscRef.current.forEach((osc) => {
-    try { osc.stop(now); } catch (_) { /* already stopped */ }
+    try { osc.stop(now); } catch (_) { /* already stopped — ignore */ }
   });
   oscRef.current = [];
 }
 
-/**
- * 🔊 Preview single note
- */
+// ─────────────────────────────────────────
+// previewNote — single-note audition (e.g. "Hear it" button)
+// Does NOT touch timersRef or oscRef — fully self-contained.
+// ─────────────────────────────────────────
 export function previewNote(audioCtx, freq, beats) {
+  if (!audioCtx) return;
   const durationSec = (beats * BEAT_MS / 1000) * 1.1;
   playNote(audioCtx, freq, audioCtx.currentTime + 0.05, durationSec);
 }

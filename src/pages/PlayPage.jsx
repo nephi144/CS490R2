@@ -1,10 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 // pages/PlayPage.jsx
-// CHANGES:
-//   • Voice selection screen shown BEFORE countdown starts
-//   • No auto-start — user must click Play after choosing voice
-//   • Single Play/Pause/Resume button driven by isPlaying/isPaused
-//   • killAllOscillators wired through context (pauseSession fixed)
+// TIME-BASED: activeNoteIndex derived from elapsedMs, not array position.
+// Voice list includes soprano/alto/tenor/bass from VOICES.
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef } from "react";
@@ -49,12 +46,12 @@ function CountdownOverlay({ count }) {
 }
 
 // ── Voice Selection Screen ────────────────────────────────────
-// ADD: shown before any session starts
 function VoiceSelectScreen({ voice, setVoice, onStart, onBack }) {
   const voices = [
-    { id: "bass",  label: "Bass",  range: "C2 – E4", emoji: "🟦" },
-    { id: "tenor", label: "Tenor", range: "C3 – G4", emoji: "🟩" },
-    { id: "alto",  label: "Alto",  range: "G3 – C5", emoji: "🟨" },
+    { id: "soprano", label: "Soprano", range: "C4 – G5", emoji: "🔴" },
+    { id: "alto",    label: "Alto",    range: "G3 – C5", emoji: "🟨" },
+    { id: "tenor",   label: "Tenor",   range: "C3 – G4", emoji: "🟩" },
+    { id: "bass",    label: "Bass",    range: "E2 – E4", emoji: "🟦" },
   ];
 
   return (
@@ -88,9 +85,7 @@ function VoiceSelectScreen({ voice, setVoice, onStart, onBack }) {
                 width: 160, padding: "24px 16px",
                 borderRadius: 14,
                 border: `2px solid ${isSelected ? C.blue : C.border}`,
-                background: isSelected
-                  ? "rgba(59,130,246,0.12)"
-                  : "rgba(255,255,255,0.04)",
+                background: isSelected ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.04)",
                 cursor: "pointer",
                 display: "flex", flexDirection: "column",
                 alignItems: "center", gap: 10,
@@ -109,10 +104,7 @@ function VoiceSelectScreen({ voice, setVoice, onStart, onBack }) {
                 {v.range}
               </div>
               {isSelected && (
-                <div style={{
-                  fontSize: 9, color: C.blue, fontFamily: C.font,
-                  letterSpacing: 2, fontWeight: 700,
-                }}>
+                <div style={{ fontSize: 9, color: C.blue, fontFamily: C.font, letterSpacing: 2, fontWeight: 700 }}>
                   ✓ SELECTED
                 </div>
               )}
@@ -125,8 +117,7 @@ function VoiceSelectScreen({ voice, setVoice, onStart, onBack }) {
         <button
           onClick={onStart}
           style={{
-            padding: "14px 40px", borderRadius: 10,
-            border: "none",
+            padding: "14px 40px", borderRadius: 10, border: "none",
             background: "linear-gradient(135deg, #3b82f6, #7c3aed)",
             color: "#fff", fontFamily: C.font, fontSize: 14,
             fontWeight: 700, cursor: "pointer", letterSpacing: 1,
@@ -184,13 +175,12 @@ export default function PlayPage({ onBack, onComplete }) {
 
   const elapsedSec = elapsedMs / 1000;
 
-  // ADD: track whether user has passed voice-select screen
   const [voiceConfirmed, setVoiceConfirmed] = useState(false);
   const [countdown,      setCountdown]      = useState(null);
   const [sessionDone,    setSessionDone]    = useState(false);
   const cdRef = useRef(null);
 
-  // ── Countdown → startSession ──────────────────────────────
+  // ── Countdown → startSession ────────────────────────────
   const launchCountdown = () => {
     setSessionDone(false);
     let c = 3;
@@ -207,13 +197,11 @@ export default function PlayPage({ onBack, onComplete }) {
     }, 1000);
   };
 
-  // ADD: called from VoiceSelectScreen
   const handleVoiceConfirmed = () => {
     setVoiceConfirmed(true);
     launchCountdown();
   };
 
-  // Cleanup on unmount only
   useEffect(() => {
     return () => { clearInterval(cdRef.current); stopSession(); };
   }, []); // eslint-disable-line
@@ -225,36 +213,34 @@ export default function PlayPage({ onBack, onComplete }) {
     }
   }, [finalScore]); // eslint-disable-line
 
-  // ── Play / Pause / Resume button ─────────────────────────
+  // ── Play / Pause / Resume ──────────────────────────────
   const handlePlayPause = () => {
-    if (isPlaying && !isPaused) {
-      pauseSession();
-    } else if (isPaused) {
-      resumeSession();
-    } else if (!sessionDone) {
-      launchCountdown();
-    }
+    if (isPlaying && !isPaused)  { pauseSession();   }
+    else if (isPaused)           { resumeSession();  }
+    else if (!sessionDone)       { launchCountdown(); }
   };
 
   const playBtnLabel =
-    isPlaying  ? "⏸ PAUSE" :
-    isPaused   ? "▶ RESUME" :
-    sessionDone ? "✓ DONE"  : "▶ PLAY";
+    isPlaying   ? "⏸ PAUSE"  :
+    isPaused    ? "▶ RESUME" :
+    sessionDone ? "✓ DONE"   : "▶ PLAY";
 
   const playBtnColor =
-    isPlaying  ? C.red :
-    isPaused   ? C.gold :
+    isPlaying   ? C.red  :
+    isPaused    ? C.gold :
     sessionDone ? C.muted : C.green;
 
-  // ── Derived values ────────────────────────────────────────
-  const totalDur = notes?.length ? notes[notes.length - 1].endMs / 1000 : 1;
+  // ── TIME-BASED derived values ───────────────────────────
+  const totalDur    = notes?.length ? notes[notes.length - 1].endMs / 1000 : 1;
   const progressPct = totalDur > 0 ? Math.min(100, (elapsedSec / totalDur) * 100) : 0;
 
+  // Derive active note index from elapsed time (not array position)
   let activeNoteIndex = -1;
   if (notes?.length) {
     activeNoteIndex = notes.findIndex(
       (n) => elapsedMs >= n.startMs && elapsedMs < n.endMs
     );
+    // After melody finishes, clamp to last note for visual continuity
     if (activeNoteIndex === -1 && elapsedMs >= notes[notes.length - 1].endMs) {
       activeNoteIndex = notes.length - 1;
     }
@@ -265,7 +251,7 @@ export default function PlayPage({ onBack, onComplete }) {
   const inTune     = cents !== null && Math.abs(cents) < 50;
   const centsColor = cents !== null ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.35)";
 
-  // ── Voice select screen (shown before session starts) ────
+  // ── Voice select screen ─────────────────────────────────
   if (!voiceConfirmed) {
     return (
       <VoiceSelectScreen
@@ -292,7 +278,6 @@ export default function PlayPage({ onBack, onComplete }) {
         background: "rgba(0,0,0,0.2)",
         display: "flex", alignItems: "center", gap: 12, flexShrink: 0,
       }}>
-        {/* Status */}
         <div style={{
           fontFamily: C.font, fontSize: 12, fontWeight: 700, letterSpacing: 2, minWidth: 130,
           color: isPlaying ? C.green : isPaused ? C.gold : sessionDone ? C.gold : C.muted,
@@ -300,7 +285,6 @@ export default function PlayPage({ onBack, onComplete }) {
           {isPlaying ? "● SINGING" : isPaused ? "⏸ PAUSED" : sessionDone ? "✓ COMPLETE" : "READY"}
         </div>
 
-        {/* ADD: Play/Pause/Resume button */}
         <button
           onClick={handlePlayPause}
           disabled={sessionDone || countdown !== null}
@@ -318,7 +302,7 @@ export default function PlayPage({ onBack, onComplete }) {
           {playBtnLabel}
         </button>
 
-        {/* Voice badge (read-only during session — change via Back → re-enter) */}
+        {/* Voice badge (read-only during session) */}
         <div style={{
           padding: "5px 12px", borderRadius: 6,
           border: `1px solid ${C.border}`,
@@ -379,7 +363,7 @@ export default function PlayPage({ onBack, onComplete }) {
           notes={notes}
           activeNoteIndex={activeNoteIndex}
           pitchHistory={pitchHistory}
-          elapsedSec={elapsedMs / 1000}
+          elapsedSec={elapsedSec}
           isPlaying={isPlaying}
           height={360}
         />
@@ -429,6 +413,7 @@ export default function PlayPage({ onBack, onComplete }) {
           </div>
         )}
 
+        {/* Per-note score bar chart */}
         {Object.keys(noteScores).length > 0 && notes?.length > 0 && (
           <div style={{
             display: "flex", gap: 6, alignItems: "flex-end",
@@ -442,7 +427,7 @@ export default function PlayPage({ onBack, onComplete }) {
                         : sc >= 75   ? C.green
                         : sc >= 40   ? "#fbbf24"
                         :              C.red;
-              const h = sc !== null ? Math.max(4, (sc / 100) * 30) : 3;
+              const h   = sc !== null ? Math.max(4, (sc / 100) * 30) : 3;
               return (
                 <div key={i} style={{
                   display: "flex", flexDirection: "column",

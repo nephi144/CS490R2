@@ -1,7 +1,10 @@
 // ─────────────────────────────────────────────────────────────
 // pages/TutorialPage.jsx
-// FIX: moved ALL hooks above every conditional return so the
-//      Rules of Hooks are never violated.
+// TIME-BASED throughout.
+//
+// "Hear it"        → previewSingleNote (single note, no scheduling)
+// "▶ badge"        → startFromNote(index) uses note.startMs offset
+// activeNoteIndex  → time-based lookup against elapsedMs
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useEffect } from "react";
@@ -36,12 +39,13 @@ const BTN = (variant = "ghost") => ({
   whiteSpace: "nowrap",
 });
 
-// ── Voice Selection Screen (pure presentational) ──────────────
+// ── Voice Selection Screen ────────────────────────────────────
 function VoiceSelectScreen({ voice, setVoice, onConfirm, onBack }) {
   const voices = [
-    { id: "bass",  label: "Bass",  range: "C2 – E4", emoji: "🟦", desc: "Lower, rich tones" },
-    { id: "tenor", label: "Tenor", range: "C3 – G4", emoji: "🟩", desc: "Mid-range, warm voice" },
-    { id: "alto",  label: "Alto",  range: "G3 – C5", emoji: "🟨", desc: "Higher harmonies" },
+    { id: "soprano", label: "Soprano", range: "C4 – G5", emoji: "🔴", desc: "High melodic line" },
+    { id: "alto",    label: "Alto",    range: "G3 – C5", emoji: "🟨", desc: "Higher harmonies" },
+    { id: "tenor",   label: "Tenor",   range: "C3 – G4", emoji: "🟩", desc: "Mid-range, warm voice" },
+    { id: "bass",    label: "Bass",    range: "E2 – E4", emoji: "🟦", desc: "Lower, rich tones" },
   ];
 
   return (
@@ -139,15 +143,16 @@ export default function TutorialPage({ onBack, onGoPlay }) {
     elapsedMs,
     startTutorialListening, stopSession,
     startFromNote,
+    previewSingleNote,       // ← single-note audition (no scheduling)
   } = useAudio();
 
-  // ── ALL HOOKS FIRST — no conditional returns before this line ──
+  // ── ALL HOOKS FIRST ───────────────────────────────────────
   const [voiceConfirmed, setVoiceConfirmed] = useState(false);
   const [selectedIdx,    setSelectedIdx]    = useState(0);
   const [started,        setStarted]        = useState(false);
   const [playingFromIdx, setPlayingFromIdx] = useState(null);
 
-  // Start mic only after voice is confirmed
+  // Start mic after voice is confirmed
   useEffect(() => {
     if (!voiceConfirmed) return;
     let live = true;
@@ -160,9 +165,8 @@ export default function TutorialPage({ onBack, onGoPlay }) {
     if (!isPlaying && !isPaused) setPlayingFromIdx(null);
   }, [isPlaying, isPaused]);
 
-  // ── Conditional renders AFTER all hooks ───────────────────
+  // ── Conditional renders AFTER all hooks ──────────────────
 
-  // Voice select screen
   if (!voiceConfirmed) {
     return (
       <VoiceSelectScreen
@@ -174,7 +178,6 @@ export default function TutorialPage({ onBack, onGoPlay }) {
     );
   }
 
-  // Loading guard
   if (!notes || notes.length === 0) {
     return (
       <div style={{
@@ -188,19 +191,43 @@ export default function TutorialPage({ onBack, onGoPlay }) {
     );
   }
 
-  // ── Derived values ────────────────────────────────────────
+  // ── Derived values ─────────────────────────────────────
   const note     = notes[selectedIdx] ?? notes[0];
   const cents    = getCentsError(liveHz, note.freq);
   const inTune   = cents !== null && Math.abs(cents) < 50;
   const hasPitch = liveHz > 0;
 
+  // ── TIME-BASED active note index ──────────────────────
+  // During live playback: find note by elapsed time.
+  // When paused/stopped:  fall back to the selected word.
+  const liveActiveIdx = isPlaying
+    ? notes.findIndex((n) => elapsedMs >= n.startMs && elapsedMs < n.endMs)
+    : -1;
+  const activeNoteIndex  = liveActiveIdx >= 0 ? liveActiveIdx : selectedIdx;
+
+  // Canvas time: when playing use real elapsed; when static, show selected note position
+  const canvasElapsedSec = isPlaying
+    ? elapsedMs / 1000
+    : (notes[selectedIdx]?.startMs ?? 0) / 1000;
+
+  const feedbackColor = hasPitch ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.15)";
+
+  // ── Handlers ─────────────────────────────────────────
+
+  /**
+   * "Hear it" — plays ONLY the selected note (no full-melody scheduling).
+   * Uses previewSingleNote which calls schedPreview(ctx, freq, beats).
+   */
   const doHearIt = async () => {
     if (!started || !note) return;
     await Tone.start();
-    setPlayingFromIdx(selectedIdx);
-    await startFromNote(selectedIdx);
+    await previewSingleNote(note);
   };
 
+  /**
+   * ▶ badge on a word — plays from that note's startMs to end of melody.
+   * Uses startFromNote(index) which maps index → note.startMs offset.
+   */
   const doPlayFromNote = async (idx) => {
     if (!started) return;
     await Tone.start();
@@ -211,17 +238,12 @@ export default function TutorialPage({ onBack, onGoPlay }) {
 
   const doStop = () => {
     stopSession();
+    // Restart mic-only listening after stopping melody playback
     startTutorialListening().then(ok => { if (ok) setStarted(true); });
     setPlayingFromIdx(null);
   };
 
-  const liveActiveIdx    = isPlaying
-    ? notes.findIndex((n) => elapsedMs >= n.startMs && elapsedMs < n.endMs)
-    : -1;
-  const activeNoteIndex  = liveActiveIdx >= 0 ? liveActiveIdx : selectedIdx;
-  const canvasElapsedSec = isPlaying ? elapsedMs / 1000 : (notes[selectedIdx]?.startMs ?? 0) / 1000;
-  const feedbackColor    = hasPitch ? (inTune ? C.green : C.red) : "rgba(255,255,255,0.15)";
-
+  // ─────────────────────────────────────────────────────
   return (
     <div style={{
       display: "grid",
@@ -230,7 +252,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
       overflow: "hidden",
     }}>
 
-      {/* ── LEFT PANEL ──────────────────────────────────────── */}
+      {/* ── LEFT PANEL ──────────────────────────────────── */}
       <div style={{
         borderRight: `1px solid ${C.border}`,
         padding: "24px 20px",
@@ -267,6 +289,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
           </p>
         </div>
 
+        {/* Playing status banner */}
         {isPlaying && (
           <div style={{
             background: "rgba(74,222,128,0.08)",
@@ -286,6 +309,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
           </div>
         )}
 
+        {/* Word selector grid */}
         <div>
           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 8 }}>
             SELECT A WORD
@@ -313,6 +337,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
                   <div style={{ fontSize: 9, color: C.muted, fontFamily: C.font, marginTop: 1 }}>
                     {n.note}
                   </div>
+                  {/* ▶ badge — plays from this note's startMs */}
                   <div
                     onClick={(e) => { e.stopPropagation(); doPlayFromNote(i); }}
                     title={`Play from "${n.lyric}"`}
@@ -335,6 +360,7 @@ export default function TutorialPage({ onBack, onGoPlay }) {
           </div>
         </div>
 
+        {/* Target note panel */}
         <div style={{ background: "rgba(0,0,0,0.3)", border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px" }}>
           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 10 }}>
             TARGET NOTE
@@ -346,17 +372,22 @@ export default function TutorialPage({ onBack, onGoPlay }) {
             {note.note} · {note.freq.toFixed(1)} Hz
           </div>
           <div style={{ display: "flex", gap: 8 }}>
+            {/* "Hear it" plays ONLY this note — no full melody scheduling */}
             <button style={{ ...BTN("primary"), flex: 1 }} onClick={doHearIt} disabled={!started}>
               ▶ Hear it
             </button>
             {isPlaying && (
-              <button style={{ ...BTN(), flex: 1, border: "1px solid rgba(248,113,113,0.4)", color: C.red }} onClick={doStop}>
+              <button
+                style={{ ...BTN(), flex: 1, border: "1px solid rgba(248,113,113,0.4)", color: C.red }}
+                onClick={doStop}
+              >
                 ■ Stop
               </button>
             )}
           </div>
         </div>
 
+        {/* Live pitch feedback */}
         <div style={{
           background: hasPitch ? (inTune ? "rgba(74,222,128,0.07)" : "rgba(248,113,113,0.07)") : "rgba(0,0,0,0.2)",
           border: `1px solid ${feedbackColor}`,
@@ -383,7 +414,12 @@ export default function TutorialPage({ onBack, onGoPlay }) {
         </div>
 
         {micError && (
-          <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#fca5a5", fontFamily: C.font }}>
+          <div style={{
+            background: "rgba(239,68,68,0.1)",
+            border: "1px solid rgba(239,68,68,0.3)",
+            borderRadius: 8, padding: "8px 12px",
+            fontSize: 11, color: "#fca5a5", fontFamily: C.font,
+          }}>
             ⚠️ {micError}
           </div>
         )}
@@ -405,7 +441,11 @@ export default function TutorialPage({ onBack, onGoPlay }) {
           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.22)", fontFamily: C.font, letterSpacing: 3 }}>
             {isPlaying ? "LIVE PLAYBACK — scrolling to match audio" : "PITCH GUIDE — select a word to focus"}
           </div>
-          <div style={{ fontSize: 10, color: C.gold, fontFamily: C.font, fontWeight: 700, background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)", borderRadius: 6, padding: "3px 10px" }}>
+          <div style={{
+            fontSize: 10, color: C.gold, fontFamily: C.font, fontWeight: 700,
+            background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)",
+            borderRadius: 6, padding: "3px 10px",
+          }}>
             {note.note} — {note.lyric}
           </div>
         </div>

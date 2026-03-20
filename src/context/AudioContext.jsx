@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 // context/AudioContext.jsx
-// FIXES: oscillator kill on pause/stop/voice-change,
-//        isPaused state, startFromNote for tutorial.
+// TIME-BASED throughout — no index assumptions.
+// Supports soprano / alto / tenor / bass via VOICES[voice].
 // ─────────────────────────────────────────────────────────────
 
 import {
@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import { startPitchLoop, stopPitchLoop } from "../audio/pitchEngine.js";
-import { scheduleMelody, killAllOscillators } from "../audio/scheduler.js";
+import { scheduleMelody, killAllOscillators, previewNote as schedPreview } from "../audio/scheduler.js";
 import { VOICES } from "../audio/melody";
 
 import {
@@ -24,18 +24,18 @@ const AudioCtx = createContext(null);
 
 export function AudioProvider({ children }) {
 
-  // ── Refs ──
+  // ── Refs ──────────────────────────────────────────────────
   const audioCtxRef     = useRef(null);
   const analyserRef     = useRef(null);
   const streamRef       = useRef(null);
   const timersRef       = useRef([]);
-  const oscRef          = useRef([]);    // ADD: live oscillator tracking
+  const oscRef          = useRef([]);
   const frameScores     = useRef({});
   const startTimeRef    = useRef(0);
   const pausedAtRef     = useRef(0);
   const previewSynthRef = useRef(null);
 
-  // ── State ──
+  // ── State ─────────────────────────────────────────────────
   const [voice,        setVoice]        = useState("bass");
   const [isListening,  setIsListening]  = useState(false);
   const [isPlaying,    setIsPlaying]    = useState(false);
@@ -49,17 +49,14 @@ export function AudioProvider({ children }) {
   const [finalScore,   setFinalScore]   = useState(null);
   const [pitchHistory, setPitchHistory] = useState([]);
 
-  const currentMelody = useMemo(() => VOICES[voice] || [], [voice]);
+  // ── Derived: current voice melody ────────────────────────
+  // notes is the full array for the selected voice, with
+  // { lyric, note, freq, beats, startMs, endMs }
+  const notes = useMemo(() => VOICES[voice] ?? [], [voice]);
 
-  const notes = useMemo(() => currentMelody.map((n) => ({
-    ...n,
-    time:     n.startMs / 1000,
-    duration: (n.endMs - n.startMs) / 1000,
-  })), [currentMelody]);
-
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   // 🎤 MICROPHONE
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   const startMic = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -108,9 +105,10 @@ export function AudioProvider({ children }) {
     setLiveClarity(0);
   }, []);
 
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   // 🔄 SHARED PITCH TRACKING
-  // ─────────────────────────────────────
+  // Uses time-based lookup against the melody array.
+  // ─────────────────────────────────────────────────────────
   const _startPitchTracking = useCallback((melody) => {
     startPitchLoop(audioCtxRef.current, analyserRef.current, (hz, clarity) => {
       setLiveHz(hz);
@@ -120,6 +118,7 @@ export function AudioProvider({ children }) {
       setElapsedMs(elapsed);
 
       if (hz > 0) {
+        // TIME-BASED note lookup — no index assumptions
         const noteIdx = melody.findIndex(
           (n) => elapsed >= n.startMs && elapsed < n.endMs
         );
@@ -133,12 +132,13 @@ export function AudioProvider({ children }) {
     });
   }, []);
 
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   // ▶ START SESSION
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   const startSession = useCallback(async () => {
     const melody = VOICES[voice];
 
+    // Reset score accumulators (keyed by note index)
     frameScores.current = {};
     melody.forEach((_, i) => { frameScores.current[i] = []; });
 
@@ -178,31 +178,29 @@ export function AudioProvider({ children }) {
     };
 
     scheduleMelody({
-      audioCtx: ctx, melody,
+      audioCtx: ctx,
+      melody,
       startOffsetMs: 0,
       onNoteStart: handleNoteStart,
       onComplete: handleComplete,
-      timersRef, oscRef,
+      timersRef,
+      oscRef,
     });
 
     _startPitchTracking(melody);
     return true;
   }, [voice, startMic, stopMic, _startPitchTracking]);
 
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   // ⏸ PAUSE — kills oscillators immediately
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   const pauseSession = useCallback(() => {
     if (!isPlaying || isPaused) return;
 
-    // 1. Clear all scheduled note/complete timers
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
 
-    // 2. Stop all Web Audio oscillators RIGHT NOW
     killAllOscillators(oscRef, audioCtxRef.current);
-
-    // 3. Stop pitch detection loop
     stopPitchLoop();
 
     const elapsed = performance.now() - startTimeRef.current;
@@ -212,16 +210,15 @@ export function AudioProvider({ children }) {
     setIsPaused(true);
   }, [isPlaying, isPaused]);
 
-  // ─────────────────────────────────────
-  // ▶ RESUME — fresh AudioContext from offset
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // ▶ RESUME — fresh AudioContext from saved offset
+  // ─────────────────────────────────────────────────────────
   const resumeSession = useCallback(async () => {
     if (isPlaying || !isPaused) return;
 
     const melody   = VOICES[voice];
     const offsetMs = pausedAtRef.current;
 
-    // Open a fresh mic/AudioContext (old one closed or suspended)
     const ctx = await startMic();
     if (!ctx) return;
 
@@ -249,11 +246,13 @@ export function AudioProvider({ children }) {
     };
 
     scheduleMelody({
-      audioCtx: ctx, melody,
+      audioCtx: ctx,
+      melody,
       startOffsetMs: offsetMs,
       onNoteStart: handleNoteStart,
       onComplete: handleComplete,
-      timersRef, oscRef,
+      timersRef,
+      oscRef,
     });
 
     _startPitchTracking(melody);
@@ -261,22 +260,23 @@ export function AudioProvider({ children }) {
     setIsPaused(false);
   }, [isPlaying, isPaused, voice, startMic, stopMic, _startPitchTracking]);
 
-  // ─────────────────────────────────────
-  // 🎯 START FROM NOTE (tutorial jump)
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // 🎯 startFromNote — jump to a note by index (tutorial)
+  // Stops current playback, then resumes from that note's startMs.
+  // ─────────────────────────────────────────────────────────
   const startFromNote = useCallback(async (noteIndex) => {
-    if (!notes?.length) return false;
+    const melody = VOICES[voice];
+    if (!melody?.length) return false;
 
-    const melody   = VOICES[voice];
     const offsetMs = melody[noteIndex]?.startMs ?? 0;
 
-    // Kill anything currently running
+    // Stop whatever is running
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
     killAllOscillators(oscRef, audioCtxRef.current);
     stopPitchLoop();
 
-    // Reuse mic context if already open, else open fresh
+    // Reuse existing mic context if open, else open fresh
     let ctx = audioCtxRef.current;
     if (!ctx) {
       ctx = await startMic();
@@ -295,22 +295,42 @@ export function AudioProvider({ children }) {
     };
 
     scheduleMelody({
-      audioCtx: ctx, melody,
+      audioCtx: ctx,
+      melody,
       startOffsetMs: offsetMs,
       onNoteStart: handleNoteStart,
       onComplete: handleComplete,
-      timersRef, oscRef,
+      timersRef,
+      oscRef,
     });
 
     _startPitchTracking(melody);
     setIsPlaying(true);
     setIsPaused(false);
     return true;
-  }, [notes, voice, startMic, _startPitchTracking]);
+  }, [voice, startMic, _startPitchTracking]);
 
-  // ─────────────────────────────────────
-  // 🎧 TUTORIAL LISTENING (mic only, no melody)
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // 🔔 previewSingleNote — play ONE note immediately, no scheduling
+  // Used by the "Hear it" button in Tutorial.
+  // Does NOT set isPlaying or affect timers/oscRef.
+  // ─────────────────────────────────────────────────────────
+  const previewSingleNote = useCallback(async (note) => {
+    if (!note) return;
+
+    // Ensure we have an AudioContext
+    let ctx = audioCtxRef.current;
+    if (!ctx) {
+      ctx = await startMic();
+      if (!ctx) return;
+    }
+
+    schedPreview(ctx, note.freq, note.beats ?? 1);
+  }, [startMic]);
+
+  // ─────────────────────────────────────────────────────────
+  // 🎧 TUTORIAL LISTENING — mic only, no melody playback
+  // ─────────────────────────────────────────────────────────
   const startTutorialListening = useCallback(async () => {
     const ctx = await startMic();
     if (!ctx) return false;
@@ -326,6 +346,9 @@ export function AudioProvider({ children }) {
     return true;
   }, [startMic]);
 
+  // ─────────────────────────────────────────────────────────
+  // ■ STOP / RESET
+  // ─────────────────────────────────────────────────────────
   const stopSession = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
@@ -348,9 +371,9 @@ export function AudioProvider({ children }) {
     pausedAtRef.current = 0;
   }, [stopSession]);
 
-  // ─────────────────────────────────────
-  // 🔊 PREVIEW NOTE (Tone.js — isolated from Web Audio)
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // 🔊 previewNote (Tone.js — kept for legacy callers)
+  // ─────────────────────────────────────────────────────────
   const previewNote = useCallback(async (note) => {
     if (!note) return;
     if (!previewSynthRef.current) {
@@ -359,9 +382,9 @@ export function AudioProvider({ children }) {
     previewSynthRef.current.triggerAttackRelease(note.note || note.freq, "1n");
   }, []);
 
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   // 🔄 RESET ON VOICE CHANGE
-  // ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   useEffect(() => {
     killAllOscillators(oscRef, audioCtxRef.current);
     stopPitchLoop();
@@ -378,8 +401,10 @@ export function AudioProvider({ children }) {
       micError,
       liveHz, liveClarity,
       activeNote, elapsedMs,
+      // notes is always the current voice's melody
       notes, voice, setVoice,
       previewNote,
+      previewSingleNote,       // ← new: single-note audition
       noteScores, finalScore, pitchHistory,
       startSession, pauseSession, resumeSession,
       startFromNote,
