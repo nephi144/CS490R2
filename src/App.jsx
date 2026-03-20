@@ -1,34 +1,24 @@
 // ─────────────────────────────────────────────────────────────
-// App.jsx  — FULL VIEWPORT layout (no more mobile card)
-// Structure:
-//   ┌─────────────────── NAVBAR ──────────────────────┐
-//   │  Logo            Page Tabs         Mic Status   │
-//   └─────────────────────────────────────────────────┘
-//   ┌──────────── FULL-WIDTH PAGE CONTENT ────────────┐
-//   │  Home  /  Tutorial  /  Play  /  Result           │
-//   └─────────────────────────────────────────────────┘
+// App.jsx  — FULL VIEWPORT layout
 // ─────────────────────────────────────────────────────────────
 
 import { useState } from "react";
 import { AudioProvider, useAudio } from "./context/AudioContext.jsx";
-import { MELODY }                   from "./audio/melody.js";
 import TutorialPage                 from "./pages/TutorialPage.jsx";
 import PlayPage                     from "./pages/PlayPage.jsx";
 import ResultPage                   from "./pages/ResultPage.jsx";
 
-// ── Design tokens ─────────────────────────────────────────────
 const C = {
-  bg:        "#05090f",
-  surface:   "rgba(255,255,255,0.03)",
-  border:    "rgba(255,255,255,0.08)",
-  text:      "#e2e8f0",
-  muted:     "rgba(255,255,255,0.38)",
-  accent:    "#3b82f6",
-  purple:    "#7c3aed",
-  gold:      "#facc15",
-  green:     "#4ade80",
-  red:       "#f87171",
-  font:      "'Courier New', Courier, monospace",
+  bg:      "#05090f",
+  border:  "rgba(255,255,255,0.08)",
+  text:    "#e2e8f0",
+  muted:   "rgba(255,255,255,0.38)",
+  accent:  "#3b82f6",
+  purple:  "#7c3aed",
+  gold:    "#facc15",
+  green:   "#4ade80",
+  red:     "#f87171",
+  font:    "'Courier New', Courier, monospace",
 };
 
 const BTN = (variant = "ghost") => ({
@@ -71,40 +61,27 @@ function Navbar({ page, setPage, resetAll, isListening }) {
       padding: "0 28px",
       gap: 0,
     }}>
-      {/* Logo */}
       <div style={{
-        fontSize: 18,
-        fontWeight: 700,
-        fontFamily: C.font,
-        background: `linear-gradient(90deg, #93c5fd, #c4b5fd)`,
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        marginRight: 40,
-        whiteSpace: "nowrap",
-        letterSpacing: "0.02em",
+        fontSize: 18, fontWeight: 700, fontFamily: C.font,
+        background: "linear-gradient(90deg, #93c5fd, #c4b5fd)",
+        WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+        marginRight: 40, whiteSpace: "nowrap", letterSpacing: "0.02em",
       }}>
-        🎵 Child of God
+        Child of God
       </div>
 
-      {/* Page tabs */}
       <div style={{ display: "flex", gap: 4, flex: 1 }}>
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => { resetAll(); setPage(t.id); }}
             style={{
-              padding: "6px 16px",
-              borderRadius: 6,
-              border: "none",
-              cursor: "pointer",
-              fontFamily: C.font,
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.07em",
+              padding: "6px 16px", borderRadius: "6px 6px 0 0",
+              border: "none", cursor: "pointer", fontFamily: C.font,
+              fontSize: 12, fontWeight: 700, letterSpacing: "0.07em",
               background: page === t.id ? "rgba(99,102,241,0.18)" : "transparent",
               color: page === t.id ? "#93c5fd" : C.muted,
-              borderBottom: page === t.id ? `2px solid #3b82f6` : "2px solid transparent",
-              borderRadius: "6px 6px 0 0",
+              borderBottom: page === t.id ? "2px solid #3b82f6" : "2px solid transparent",
               transition: "all 0.15s",
             }}
           >
@@ -113,7 +90,6 @@ function Navbar({ page, setPage, resetAll, isListening }) {
         ))}
       </div>
 
-      {/* Mic status */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{
           width: 8, height: 8, borderRadius: "50%",
@@ -129,7 +105,91 @@ function Navbar({ page, setPage, resetAll, isListening }) {
   );
 }
 
-// ── Home Page — full viewport ─────────────────────────────────
+// ── Divider ───────────────────────────────────────────────────
+function Divider() {
+  return (
+    <div style={{ borderTop: `1px solid ${C.border}`, margin: "28px 0" }} />
+  );
+}
+
+// ── Section label ─────────────────────────────────────────────
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      fontSize: 9, fontFamily: C.font, color: "rgba(255,255,255,0.25)",
+      letterSpacing: 4, marginBottom: 16, textTransform: "uppercase",
+    }}>
+      {children}
+    </div>
+  );
+}
+
+// ── Feature row ───────────────────────────────────────────────
+function FeatureRow({ icon, text }) {
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: 8,
+        background: "rgba(99,102,241,0.15)",
+        border: "1px solid rgba(99,102,241,0.25)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 13, flexShrink: 0,
+      }}>
+        {icon}
+      </div>
+      <span style={{ fontSize: 13, color: C.muted, fontFamily: C.font, lineHeight: 1.6, paddingTop: 4 }}>
+        {text}
+      </span>
+    </div>
+  );
+}
+
+// ── Step row ──────────────────────────────────────────────────
+function StepRow({ n, title, detail }) {
+  return (
+    <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
+      <div style={{
+        width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+        background: "rgba(99,102,241,0.22)",
+        border: "1px solid rgba(99,102,241,0.35)",
+        color: "#93c5fd", fontFamily: C.font, fontSize: 11, fontWeight: 700,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {n}
+      </div>
+      <div>
+        <div style={{ fontSize: 13, color: C.text, fontFamily: C.font, fontWeight: 700, marginBottom: 2 }}>
+          {title}
+        </div>
+        {detail && (
+          <div style={{ fontSize: 12, color: C.muted, fontFamily: C.font, lineHeight: 1.6 }}>
+            {detail}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Voice badge ───────────────────────────────────────────────
+function VoiceBadge({ label, range, color }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      background: "rgba(255,255,255,0.04)",
+      border: `1px solid ${color}22`,
+      borderRadius: 8, padding: "10px 14px",
+    }}>
+      <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: C.font, color: C.text }}>{label}</div>
+        <div style={{ fontSize: 10, color: C.muted, fontFamily: C.font }}>{range}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── HomePage ──────────────────────────────────────────────────
 function HomePage({ onTutorial, onPlay }) {
   const { micError } = useAudio();
 
@@ -137,174 +197,137 @@ function HomePage({ onTutorial, onPlay }) {
     <div style={{
       display: "grid",
       gridTemplateColumns: "1fr 1fr",
-      gridTemplateRows: "1fr",
-      gap: 0,
-      height: "100%",
       minHeight: "calc(100vh - 56px)",
     }}>
-      {/* LEFT — Hero text */}
+
+      {/* ── LEFT COLUMN ─────────────────────────────────────── */}
       <div style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        padding: "60px 64px",
+        display: "flex", flexDirection: "column",
+        padding: "48px 52px",
         borderRight: `1px solid ${C.border}`,
+        overflowY: "auto",
       }}>
-        <div style={{ fontSize: 56, marginBottom: 16 }}>🎵</div>
 
-        <h1 style={{
-          margin: "0 0 12px",
-          fontSize: "clamp(28px, 3.5vw, 48px)",
-          fontWeight: 700,
-          fontFamily: C.font,
-          letterSpacing: "0.02em",
-          lineHeight: 1.2,
-          background: "linear-gradient(135deg, #93c5fd 0%, #c4b5fd 50%, #93c5fd 100%)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-        }}>
-          I Am a Child<br />of God
-        </h1>
-
-        <p style={{
-          color: C.muted,
-          fontSize: 15,
-          fontFamily: C.font,
-          lineHeight: 1.8,
-          marginBottom: 36,
-          maxWidth: 420,
-        }}>
-          A real-time pitch accuracy tracker. Sing the first phrase,
-          see your pitch on screen, and get an accuracy score —
-          no music reading required.
-        </p>
+        {/* Hero */}
+        <div style={{ marginBottom: 36 }}>
+          <div style={{ fontSize: 11, fontFamily: C.font, color: "rgba(255,255,255,0.2)", letterSpacing: 4, marginBottom: 14 }}>
+            HYMN SINGING TRAINER & VISUALIZER
+          </div>
+          <h1 style={{
+            margin: "0 0 16px",
+            fontSize: "clamp(26px, 3vw, 40px)",
+            fontWeight: 700, fontFamily: C.font,
+            lineHeight: 1.25, letterSpacing: "0.01em",
+            background: "linear-gradient(135deg, #93c5fd 0%, #c4b5fd 60%, #93c5fd 100%)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+          }}>
+            Learn to Sing Hymns<br />with Real-Time Guidance
+          </h1>
+          <p style={{ margin: 0, color: C.muted, fontSize: 14, fontFamily: C.font, lineHeight: 1.8, maxWidth: 440 }}>
+            This application helps users improve singing accuracy by combining music
+            visualization with real-time pitch detection — making hymn singing
+            interactive, visual, and accessible.
+          </p>
+        </div>
 
         {micError && (
           <div style={{
-            background: "rgba(239,68,68,0.1)",
-            border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 8,
-            padding: "12px 16px",
-            marginBottom: 20,
-            fontSize: 13,
-            color: "#fca5a5",
-            fontFamily: C.font,
+            background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
+            borderRadius: 8, padding: "10px 14px", marginBottom: 20,
+            fontSize: 12, color: "#fca5a5", fontFamily: C.font,
           }}>
             ⚠️ {micError}
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 340 }}>
-          <button style={BTN("ghost")} onClick={onTutorial}>
-            🎓 TUTORIAL — Practice each note
-          </button>
-          <button style={BTN("primary")} onClick={onPlay}>
-            🎤 START — Sing the full phrase
-          </button>
+        {/* CTA buttons */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 320, marginBottom: 36 }}>
+          <button style={BTN("primary")} onClick={onPlay}>START SINGING</button>
+          <button style={BTN("ghost")} onClick={onTutorial}>OPEN TUTORIAL</button>
         </div>
 
-        <p style={{
-          marginTop: 28,
-          fontSize: 11,
-          color: "rgba(255,255,255,0.18)",
-          fontFamily: C.font,
-        }}>
-          Microphone access required · Best in a quiet room
-        </p>
+        <Divider />
+
+        {/* What this project is about */}
+        <div style={{ marginBottom: 28 }}>
+          <SectionLabel>What This Project Does</SectionLabel>
+          <FeatureRow icon="→" text="Displays the exact notes the user should sing, updated in real time" />
+          <FeatureRow icon="→" text="Compares the user's live voice against the target melody" />
+          <FeatureRow icon="→" text="Scores pitch accuracy note-by-note after each performance" />
+          <FeatureRow icon="→" text="Supports Bass, Tenor, and Alto voice parts from the SATB arrangement" />
+        </div>
+
+        <Divider />
+
+        {/* Purpose */}
+        <div style={{ marginBottom: 28 }}>
+          <SectionLabel>Purpose</SectionLabel>
+          <p style={{ margin: "0 0 12px", fontSize: 13, color: C.muted, fontFamily: C.font, lineHeight: 1.8 }}>
+            Many singers struggle to stay on pitch, identify their voice part, or follow
+            music without prior training. This tool provides visual guidance and instant
+            audio feedback — lowering the barrier to confident singing.
+          </p>
+        </div>
+
+        <Divider />
+
+        {/* Voice parts */}
+        <div>
+          <SectionLabel>Supported Voice Parts</SectionLabel>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <VoiceBadge label="Bass"  range="C2 – E4"  color="#60a5fa" />
+            <VoiceBadge label="Tenor" range="C3 – G4"  color="#4ade80" />
+            <VoiceBadge label="Alto"  range="G3 – C5"  color="#facc15" />
+          </div>
+        </div>
       </div>
 
-      {/* RIGHT — Note preview grid */}
+      {/* ── RIGHT COLUMN ────────────────────────────────────── */}
       <div style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        padding: "60px 64px",
-        background: "rgba(0,0,0,0.2)",
+        display: "flex", flexDirection: "column",
+        padding: "48px 52px",
+        background: "rgba(0,0,0,0.18)",
+        overflowY: "auto",
       }}>
-        <div style={{
-          fontSize: 10,
-          color: "rgba(255,255,255,0.25)",
-          fontFamily: C.font,
-          letterSpacing: 3,
-          marginBottom: 28,
-          textTransform: "uppercase",
-        }}>
-          First Phrase — Notes Preview
-        </div>
-
-        {/* Big note cards */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 12,
-          marginBottom: 36,
-        }}>
-          {MELODY.map((n, i) => (
-            <div key={i} style={{
-              background: "rgba(255,255,255,0.04)",
-              border: `1px solid ${C.border}`,
-              borderRadius: 12,
-              padding: "20px 16px",
-              textAlign: "center",
-            }}>
-              <div style={{
-                fontSize: 28,
-                fontWeight: 700,
-                color: "#93c5fd",
-                fontFamily: C.font,
-                marginBottom: 6,
-              }}>
-                {n.lyric}
-              </div>
-              <div style={{ fontSize: 11, color: C.muted, fontFamily: C.font }}>
-                {n.note}
-              </div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", fontFamily: C.font, marginTop: 4 }}>
-                {n.freq.toFixed(0)} Hz
-              </div>
-            </div>
-          ))}
-        </div>
 
         {/* How it works */}
+        <div style={{ marginBottom: 36 }}>
+          <SectionLabel>How It Works</SectionLabel>
+          <StepRow n="1" title="Choose Your Voice" detail="Select Bass, Tenor, or Alto before starting." />
+          <StepRow n="2" title="Start the Session" detail="The melody plays through your speakers." />
+          <StepRow n="3" title="Sing Along" detail="Notes scroll across the screen. Blue dot = target. Green line = your voice." />
+          <StepRow n="4" title="Match the Pitch" detail="Adjust your voice to follow the moving guide." />
+          <StepRow n="5" title="Review Your Score" detail="Pitch accuracy is calculated note-by-note after the phrase ends." />
+        </div>
+
+        <Divider />
+
+        {/* Practice mode callout */}
         <div style={{
-          background: "rgba(255,255,255,0.03)",
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          padding: "20px 24px",
+          background: "rgba(99,102,241,0.07)",
+          border: "1px solid rgba(99,102,241,0.2)",
+          borderRadius: 12, padding: "20px 24px",
         }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: C.font, letterSpacing: 3, marginBottom: 14 }}>
-            HOW IT WORKS
-          </div>
-          {[
-            ["1", "Melody plays through your speakers"],
-            ["2", "You sing along into the microphone"],
-            ["3", "Your pitch appears on screen in real time"],
-            ["4", "Get a score based on how close you were"],
-          ].map(([n, t]) => (
-            <div key={n} style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
-              <div style={{
-                width: 22, height: 22, borderRadius: "50%",
-                background: "rgba(99,102,241,0.25)",
-                color: "#93c5fd",
-                fontFamily: C.font,
-                fontSize: 11,
-                fontWeight: 700,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0,
-              }}>
-                {n}
-              </div>
-              <span style={{ fontSize: 13, color: C.muted, fontFamily: C.font, lineHeight: 1.5 }}>{t}</span>
-            </div>
-          ))}
+          <SectionLabel>Practice Mode</SectionLabel>
+          <p style={{ margin: "0 0 16px", fontSize: 13, color: C.muted, fontFamily: C.font, lineHeight: 1.7 }}>
+            Not ready to sing the full phrase? Use Tutorial Mode to isolate and hear any
+            individual note, see where your voice sits on the pitch guide, and build
+            confidence before a full session.
+          </p>
+          <button style={{ ...BTN("ghost"), fontSize: 11 }} onClick={onTutorial}>
+            OPEN TUTORIAL MODE →
+          </button>
+        </div>
+
+        <div style={{ marginTop: 24, fontSize: 11, color: "rgba(255,255,255,0.15)", fontFamily: C.font }}>
+          Microphone access required · Best used in a quiet environment
         </div>
       </div>
     </div>
   );
 }
 
-// ── Router + full-page shell ──────────────────────────────────
+// ── Router ────────────────────────────────────────────────────
 function Router() {
   const [page, setPage] = useState("home");
   const { isListening, resetAll } = useAudio();
@@ -313,46 +336,24 @@ function Router() {
 
   return (
     <div style={{
-      width: "100vw",
-      minHeight: "100vh",
-      background: C.bg,
-      backgroundImage: "none",
-      color: C.text,
-      boxSizing: "border-box",
-      overflowX: "hidden",
+      width: "100vw", minHeight: "100vh",
+      background: C.bg, color: C.text,
+      boxSizing: "border-box", overflowX: "hidden",
     }}>
-      {/* Fixed navbar */}
       <Navbar page={page} setPage={setPage} resetAll={resetAll} isListening={isListening} />
 
-      {/* Page area — below navbar */}
       <div style={{ paddingTop: 56, minHeight: "100vh", boxSizing: "border-box" }}>
-
         {page === "home" && (
-          <HomePage
-            onTutorial={() => setPage("tutorial")}
-            onPlay={() => setPage("play")}
-          />
+          <HomePage onTutorial={() => setPage("tutorial")} onPlay={() => setPage("play")} />
         )}
-
         {page === "tutorial" && (
-          <TutorialPage
-            onBack={() => goTo("home")}
-            onGoPlay={() => goTo("play")}
-          />
+          <TutorialPage onBack={() => goTo("home")} onGoPlay={() => goTo("play")} />
         )}
-
         {page === "play" && (
-          <PlayPage
-            onBack={() => goTo("home")}
-            onComplete={() => setPage("result")}
-          />
+          <PlayPage onBack={() => goTo("home")} onComplete={() => setPage("result")} />
         )}
-
         {page === "result" && (
-          <ResultPage
-            onHome={() => goTo("home")}
-            onRetry={() => goTo("play")}
-          />
+          <ResultPage onHome={() => goTo("home")} onRetry={() => goTo("play")} />
         )}
       </div>
     </div>
