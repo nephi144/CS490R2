@@ -11,28 +11,46 @@ function buildWords(melody = []) {
 
     if (!lyric) continue;
 
+    // This syllable continues a previous one (e.g. "-en", "-ly", "-ents")
     if (lyric.startsWith("-")) {
-      currentWord += lyric.slice(1);
-      words.push({
-        text: currentWord,
-        start: startIndex,
-        end: i,
-      });
-      currentWord = "";
+      if (currentWord) {
+        // Complete the hyphenated word started earlier
+        currentWord += lyric.slice(1);
+        words.push({ text: currentWord, start: startIndex, end: i });
+        currentWord = "";
+      } else {
+        // Orphaned leading-dash syllable — treat as standalone
+        words.push({ text: lyric.slice(1), start: i, end: i });
+      }
       continue;
     }
 
+    // This syllable starts a hyphenated word (e.g. "giv-", "earth-", "be-", "some-")
     if (lyric.endsWith("-")) {
+      // If there's already a dangling syllable, flush it first
+      if (currentWord) {
+        words.push({ text: currentWord, start: startIndex, end: i - 1 });
+      }
       currentWord = lyric.slice(0, -1);
       startIndex = i;
       continue;
     }
 
-    words.push({
-      text: lyric,
-      start: i,
-      end: i,
-    });
+    // Normal word — but first check if there's a dangling syllable to flush.
+    // This handles cases like "be-" -> "side" where "side" doesn't start with "-"
+    if (currentWord) {
+      currentWord += lyric;
+      words.push({ text: currentWord, start: startIndex, end: i });
+      currentWord = "";
+      continue;
+    }
+
+    words.push({ text: lyric, start: i, end: i });
+  }
+
+  // Flush any trailing dangling syllable (e.g. a trailing "some-" at end of melody)
+  if (currentWord) {
+    words.push({ text: currentWord, start: startIndex, end: melody.length - 1 });
   }
 
   return words;
