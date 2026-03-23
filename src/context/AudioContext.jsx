@@ -1,7 +1,20 @@
 // ─────────────────────────────────────────────────────────────
 // context/AudioContext.jsx
-// TIME-BASED throughout — no index assumptions.
-// Supports soprano / alto / tenor / bass via VOICES[voice].
+//
+// TIME-BASED engine — fully independent SATB voice support.
+//
+// KEY ARCHITECTURE:
+//   _startPitchTracking is the SINGLE source of truth for:
+//     • elapsedMs    — wall-clock ms since session start
+//     • activeNote   — note active RIGHT NOW (time lookup, 60fps)
+//     • scoring      — cents vs that same note, same frame
+//
+//   Previously, activeNote was set by scheduler's onNoteStart
+//   (setTimeout, ±50ms jitter). With independent per-voice beats,
+//   this caused targetFreq to point at the WRONG note → -2000¢.
+//
+//   scheduler's onNoteStart now ONLY resets pitchHistory (trail
+//   wipe at note boundaries). It never calls setActiveNote.
 // ─────────────────────────────────────────────────────────────
 
 import {
@@ -49,8 +62,7 @@ export function AudioProvider({ children }) {
   const [finalScore,   setFinalScore]   = useState(null);
   const [pitchHistory, setPitchHistory] = useState([]);
 
-  // ── Derived: current voice melody ────────────────────────
-  // notes is the full array for the selected voice, with
+  // notes = full built melody for the selected voice
   // { lyric, note, freq, beats, startMs, endMs }
   const notes = useMemo(() => VOICES[voice] ?? [], [voice]);
 
@@ -67,9 +79,9 @@ export function AudioProvider({ children }) {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       audioCtxRef.current = ctx;
 
-      const source = ctx.createMediaStreamSource(stream);
-      const hp     = ctx.createBiquadFilter();
-      hp.type      = "highpass";
+      const source  = ctx.createMediaStreamSource(stream);
+      const hp      = ctx.createBiquadFilter();
+      hp.type       = "highpass";
       hp.frequency.value = 150;
 
       const analyser = ctx.createAnalyser();
@@ -106,26 +118,49 @@ export function AudioProvider({ children }) {
   }, []);
 
   // ─────────────────────────────────────────────────────────
-  // 🔄 SHARED PITCH TRACKING
-  // Uses time-based lookup against the melody array.
+  // 🔄 SHARED PITCH TRACKING — AUTHORITATIVE TIME ENGINE
+  //
+  // Runs at ~60fps via requestAnimationFrame inside pitchEngine.
+  // This is the ONLY place that sets activeNote and elapsedMs
+  // during playback. Both are derived from the same elapsed time
+  // value, so the TARGET display and scoring are always in sync.
+  //
+  // Why this matters for independent SATB voices:
+  //   Each voice has its own startMs/endMs per note. If you call
+  //   setActiveNote from scheduler's onNoteStart (setTimeout), the
+  //   note boundary can fire 10–50ms late, pointing targetFreq at
+  //   the previous note while the pitch loop already scores the
+  //   next one → cents error of ±1200¢ or more.
+  //
+  //   With this approach both always use the same elapsed value
+  //   so the error is bounded by rAF timing (<2ms).
   // ─────────────────────────────────────────────────────────
   const _startPitchTracking = useCallback((melody) => {
     startPitchLoop(audioCtxRef.current, analyserRef.current, (hz, clarity) => {
       setLiveHz(hz);
       setLiveClarity(clarity);
 
+      // 1. Single elapsed computation used for BOTH activeNote and scoring
       const elapsed = performance.now() - startTimeRef.current;
       setElapsedMs(elapsed);
 
-      if (hz > 0) {
-        // TIME-BASED note lookup — no index assumptions
-        const noteIdx = melody.findIndex(
-          (n) => elapsed >= n.startMs && elapsed < n.endMs
-        );
-        if (noteIdx >= 0) {
-          const cents = getCentsError(hz, melody[noteIdx].freq);
-          const sc    = scoreFromCents(cents);
-          if (sc !== null) frameScores.current[noteIdx].push(sc);
+      // 2. Time-based note lookup — voice-agnostic, no index math
+      //    Works identically for all four voices with independent beats.
+      const activeIdx   = melody.findIndex(
+        (n) => elapsed >= n.startMs && elapsed < n.endMs
+      );
+      const currentNote = activeIdx >= 0 ? melody[activeIdx] : null;
+
+      // 3. Update activeNote — this is what PlayPage reads for the
+      //    TARGET pill and cents calculation. Same frame = same note.
+      setActiveNote(currentNote);
+
+      // 4. Score only when mic detects pitch AND a note is sounding
+      if (hz > 0 && currentNote !== null) {
+        const cents = getCentsError(hz, currentNote.freq);
+        const sc    = scoreFromCents(cents);
+        if (sc !== null) {
+          frameScores.current[activeIdx].push(sc);
         }
         setPitchHistory((prev) => [...prev.slice(-200), { hz }]);
       }
@@ -138,7 +173,7 @@ export function AudioProvider({ children }) {
   const startSession = useCallback(async () => {
     const melody = VOICES[voice];
 
-    // Reset score accumulators (keyed by note index)
+    // Initialise per-note score buckets (keyed by note index)
     frameScores.current = {};
     melody.forEach((_, i) => { frameScores.current[i] = []; });
 
@@ -156,8 +191,9 @@ export function AudioProvider({ children }) {
     setIsPlaying(true);
     startTimeRef.current = performance.now();
 
-    const handleNoteStart = (note) => {
-      setActiveNote(note);
+    // onNoteStart: pitch trail reset only — NOT setActiveNote.
+    // activeNote is driven by _startPitchTracking (see above).
+    const handleNoteStart = (_note) => {
       setPitchHistory([]);
     };
 
@@ -182,7 +218,7 @@ export function AudioProvider({ children }) {
       melody,
       startOffsetMs: 0,
       onNoteStart: handleNoteStart,
-      onComplete: handleComplete,
+      onComplete:  handleComplete,
       timersRef,
       oscRef,
     });
@@ -222,10 +258,12 @@ export function AudioProvider({ children }) {
     const ctx = await startMic();
     if (!ctx) return;
 
+    // Reconstruct elapsed-time origin so performance.now() - startTimeRef
+    // gives the correct ms value from the paused position onward.
     startTimeRef.current = performance.now() - offsetMs;
 
-    const handleNoteStart = (note) => {
-      setActiveNote(note);
+    // onNoteStart: trail reset only (same reasoning as startSession)
+    const handleNoteStart = (_note) => {
       setPitchHistory([]);
     };
 
@@ -250,7 +288,7 @@ export function AudioProvider({ children }) {
       melody,
       startOffsetMs: offsetMs,
       onNoteStart: handleNoteStart,
-      onComplete: handleComplete,
+      onComplete:  handleComplete,
       timersRef,
       oscRef,
     });
@@ -261,22 +299,20 @@ export function AudioProvider({ children }) {
   }, [isPlaying, isPaused, voice, startMic, stopMic, _startPitchTracking]);
 
   // ─────────────────────────────────────────────────────────
-  // 🎯 startFromNote — jump to a note by index (tutorial)
-  // Stops current playback, then resumes from that note's startMs.
+  // 🎯 startFromNote — jump to note by index (tutorial)
   // ─────────────────────────────────────────────────────────
   const startFromNote = useCallback(async (noteIndex) => {
     const melody = VOICES[voice];
     if (!melody?.length) return false;
 
+    // Map note index → ms offset using that voice's own startMs
     const offsetMs = melody[noteIndex]?.startMs ?? 0;
 
-    // Stop whatever is running
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
     killAllOscillators(oscRef, audioCtxRef.current);
     stopPitchLoop();
 
-    // Reuse existing mic context if open, else open fresh
     let ctx = audioCtxRef.current;
     if (!ctx) {
       ctx = await startMic();
@@ -286,8 +322,12 @@ export function AudioProvider({ children }) {
     startTimeRef.current = performance.now() - offsetMs;
     setElapsedMs(offsetMs);
 
-    const handleNoteStart = (note) => { setActiveNote(note); };
-    const handleComplete  = () => {
+    // onNoteStart: trail reset only
+    const handleNoteStart = (_note) => {
+      setPitchHistory([]);
+    };
+
+    const handleComplete = () => {
       stopPitchLoop();
       killAllOscillators(oscRef, audioCtxRef.current);
       setIsPlaying(false);
@@ -299,7 +339,7 @@ export function AudioProvider({ children }) {
       melody,
       startOffsetMs: offsetMs,
       onNoteStart: handleNoteStart,
-      onComplete: handleComplete,
+      onComplete:  handleComplete,
       timersRef,
       oscRef,
     });
@@ -311,20 +351,15 @@ export function AudioProvider({ children }) {
   }, [voice, startMic, _startPitchTracking]);
 
   // ─────────────────────────────────────────────────────────
-  // 🔔 previewSingleNote — play ONE note immediately, no scheduling
-  // Used by the "Hear it" button in Tutorial.
-  // Does NOT set isPlaying or affect timers/oscRef.
+  // 🔔 previewSingleNote — one note, no scheduling (Tutorial)
   // ─────────────────────────────────────────────────────────
   const previewSingleNote = useCallback(async (note) => {
     if (!note) return;
-
-    // Ensure we have an AudioContext
     let ctx = audioCtxRef.current;
     if (!ctx) {
       ctx = await startMic();
       if (!ctx) return;
     }
-
     schedPreview(ctx, note.freq, note.beats ?? 1);
   }, [startMic]);
 
@@ -372,7 +407,7 @@ export function AudioProvider({ children }) {
   }, [stopSession]);
 
   // ─────────────────────────────────────────────────────────
-  // 🔊 previewNote (Tone.js — kept for legacy callers)
+  // 🔊 previewNote (Tone.js — legacy, kept for compatibility)
   // ─────────────────────────────────────────────────────────
   const previewNote = useCallback(async (note) => {
     if (!note) return;
@@ -401,10 +436,9 @@ export function AudioProvider({ children }) {
       micError,
       liveHz, liveClarity,
       activeNote, elapsedMs,
-      // notes is always the current voice's melody
       notes, voice, setVoice,
       previewNote,
-      previewSingleNote,       // ← new: single-note audition
+      previewSingleNote,
       noteScores, finalScore, pitchHistory,
       startSession, pauseSession, resumeSession,
       startFromNote,

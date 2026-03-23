@@ -42,10 +42,10 @@ const BTN = (variant = "ghost") => ({
 // ── Voice Selection Screen ────────────────────────────────────
 function VoiceSelectScreen({ voice, setVoice, onConfirm, onBack }) {
   const voices = [
-    { id: "soprano", label: "Soprano", range: "C4 – G5", emoji: "🔴", desc: "High melodic line" },
-    { id: "alto",    label: "Alto",    range: "G3 – C5", emoji: "🟨", desc: "Higher harmonies" },
-    { id: "tenor",   label: "Tenor",   range: "C3 – G4", emoji: "🟩", desc: "Mid-range, warm voice" },
-    { id: "bass",    label: "Bass",    range: "E2 – E4", emoji: "🟦", desc: "Lower, rich tones" },
+    { id: "soprano", label: "Soprano", range: "C4 – G5", desc: "High melodic line" },
+    { id: "alto",    label: "Alto",    range: "G3 – C5", desc: "Higher harmonies" },
+    { id: "tenor",   label: "Tenor",   range: "C3 – G4", desc: "Mid-range, warm voice" },
+    { id: "bass",    label: "Bass",    range: "E2 – E4", desc: "Lower, rich tones" },
   ];
 
   return (

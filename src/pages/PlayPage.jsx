@@ -48,10 +48,10 @@ function CountdownOverlay({ count }) {
 // ── Voice Selection Screen ────────────────────────────────────
 function VoiceSelectScreen({ voice, setVoice, onStart, onBack }) {
   const voices = [
-    { id: "soprano", label: "Soprano", range: "C4 – G5", emoji: "🔴" },
-    { id: "alto",    label: "Alto",    range: "G3 – C5", emoji: "🟨" },
-    { id: "tenor",   label: "Tenor",   range: "C3 – G4", emoji: "🟩" },
-    { id: "bass",    label: "Bass",    range: "E2 – E4", emoji: "🟦" },
+    { id: "soprano", label: "Soprano", range: "C4 – G5" },
+    { id: "alto",    label: "Alto",    range: "G3 – C5" },
+    { id: "tenor",   label: "Tenor",   range: "C3 – G4" },
+    { id: "bass",    label: "Bass",    range: "E2 – E4" },
   ];
 
   return (
@@ -234,18 +234,29 @@ export default function PlayPage({ onBack, onComplete }) {
   const totalDur    = notes?.length ? notes[notes.length - 1].endMs / 1000 : 1;
   const progressPct = totalDur > 0 ? Math.min(100, (elapsedSec / totalDur) * 100) : 0;
 
-  // Derive active note index from elapsed time (not array position)
+  // activeNote is set by AudioContext's pitch loop (60fps, time-based).
+  // It already points to the correct note for the current elapsedMs,
+  // so we derive activeNoteIndex from it for canvas + karaoke.
+  // Fallback: if between notes or after melody ends, find by time.
   let activeNoteIndex = -1;
   if (notes?.length) {
-    activeNoteIndex = notes.findIndex(
-      (n) => elapsedMs >= n.startMs && elapsedMs < n.endMs
-    );
-    // After melody finishes, clamp to last note for visual continuity
+    if (activeNote) {
+      // Fast path — match the object the pitch loop already found
+      activeNoteIndex = notes.indexOf(activeNote);
+    }
+    if (activeNoteIndex === -1) {
+      // Fallback: time lookup (handles gap between notes, end of melody)
+      activeNoteIndex = notes.findIndex(
+        (n) => elapsedMs >= n.startMs && elapsedMs < n.endMs
+      );
+    }
+    // Clamp to last note for visual continuity after melody finishes
     if (activeNoteIndex === -1 && elapsedMs >= notes[notes.length - 1].endMs) {
       activeNoteIndex = notes.length - 1;
     }
   }
 
+  // targetFreq comes from activeNote (pitch-loop driven, same frame as scoring)
   const targetFreq = activeNote?.freq ?? null;
   const cents      = getCentsError(liveHz, targetFreq);
   const inTune     = cents !== null && Math.abs(cents) < 50;
